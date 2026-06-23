@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install *)",
+      "Bash(npm run *)",
+      "Bash(curl -s http://localhost:5173)",
+      "Bash(timeout 3 node server.js)",
+      "Bash(curl *)",
+      "Skill(artifact-design)",
+      "Bash(node --input-type=module)"
+    ]
+  }
+}

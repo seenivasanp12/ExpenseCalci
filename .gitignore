@@ -1,0 +1,6 @@
+node_modules/
+dist/
+
+# NEVER commit .env files — they contain real credentials
+.env
+backend/.env
