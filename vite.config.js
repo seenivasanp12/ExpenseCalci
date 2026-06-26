@@ -6,7 +6,7 @@ export default defineConfig({
   base: './',
   server: {
     proxy: {
-      '/api': 'http://localhost:3001',
+      '/api': 'https://expensecalci.onrender.com',
     },
   },
 })

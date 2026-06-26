@@ -14,9 +14,14 @@ const PORT = process.env.PORT || 3001
 app.use(helmet())
 
 // CORS — allowed origins from env, fallback to localhost for local dev
-const allowedOrigins = (process.env.ALLOWED_ORIGINS || 'http://localhost:5173')
-  .split(',')
-  .map(o => o.trim())
+const allowedOrigins = [
+  ...(process.env.ALLOWED_ORIGINS || 'http://localhost:5173')
+    .split(',')
+    .map(o => o.trim()),
+  'http://localhost',
+  'capacitor://localhost',
+  'ionic://localhost',
+]
 
 app.use(cors({
   origin: (origin, callback) => {

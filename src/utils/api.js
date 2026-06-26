@@ -1,6 +1,5 @@
 // All requests go to our Express backend.
-// In web dev: Vite proxies /api/* to localhost:3001.
-// In Android/iOS builds: set VITE_API_URL to the backend host (e.g. http://10.0.2.2:3001).
+// VITE_API_URL must be set to the backend host (e.g. https://expensecalci.onrender.com).
 // The backend holds the Supabase service key — it never reaches the client.
 
 const API_BASE = import.meta.env.VITE_API_URL || ''
