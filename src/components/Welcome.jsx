@@ -58,19 +58,19 @@ export default function Welcome({ onUserSelect, onAdminAccess }) {
 
       {/* User cards */}
       {!loading && !error && (
-        <div className="flex flex-wrap justify-center gap-6 max-w-3xl">
+        <div className="grid grid-cols-2 gap-4 w-full max-w-sm">
           {users.map((user, i) => {
             const style = COLOR_POOL[user.color_index ?? i % COLOR_POOL.length]
             return (
               <button
                 key={user.id}
                 onClick={() => onUserSelect(user.name)}
-                className={`group flex flex-col items-center p-8 rounded-3xl bg-white shadow-xl border-2 border-transparent ${style.border} ${style.shadow} hover:shadow-2xl transition-all duration-300 hover:-translate-y-3 min-w-[160px]`}
+                className={`group flex flex-col items-center p-5 rounded-3xl bg-white shadow-xl border-2 border-transparent ${style.border} ${style.shadow} hover:shadow-2xl transition-all duration-300 hover:-translate-y-2`}
               >
-                <div className={`w-24 h-24 rounded-full bg-gradient-to-br ${style.gradient} flex items-center justify-center text-white text-4xl font-black mb-5 shadow-lg group-hover:scale-110 transition-transform duration-300`}>
+                <div className={`w-16 h-16 rounded-full bg-gradient-to-br ${style.gradient} flex items-center justify-center text-white text-2xl font-black mb-3 shadow-lg group-hover:scale-110 transition-transform duration-300`}>
                   {user.name[0].toUpperCase()}
                 </div>
-                <span className="text-2xl font-bold text-gray-800 mb-2">{user.name}</span>
+                <span className="text-base font-bold text-gray-800 mb-1 truncate w-full text-center">{user.name}</span>
                 <span className={`text-xs font-semibold px-3 py-1 rounded-full ${style.tag}`}>
                   Tap to enter
                 </span>

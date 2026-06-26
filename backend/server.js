@@ -13,8 +13,20 @@ const PORT = process.env.PORT || 3001
 // Security headers
 app.use(helmet())
 
-// CORS — Vite dev-server proxies so the real caller is localhost:5173
-app.use(cors({ origin: true, credentials: true }))
+// CORS — allowed origins from env, fallback to localhost for local dev
+const allowedOrigins = (process.env.ALLOWED_ORIGINS || 'http://localhost:5173')
+  .split(',')
+  .map(o => o.trim())
+
+app.use(cors({
+  origin: (origin, callback) => {
+    // allow requests with no origin (mobile apps, curl, Postman)
+    if (!origin) return callback(null, true)
+    if (allowedOrigins.includes(origin)) return callback(null, true)
+    callback(new Error(`CORS blocked: ${origin}`))
+  },
+  credentials: true,
+}))
 
 app.use(express.json({ limit: '100kb' }))
 

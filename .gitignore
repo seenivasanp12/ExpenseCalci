@@ -4,3 +4,6 @@ dist/
 # NEVER commit .env files — they contain real credentials
 .env
 backend/.env
+
+# IDE
+.idea/

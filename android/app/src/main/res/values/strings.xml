@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Family Expenses</string>
+    <string name="title_activity_main">Family Expenses</string>
+    <string name="package_name">com.techworld.familyexpenses</string>
+    <string name="custom_url_scheme">com.techworld.familyexpenses</string>
+</resources>

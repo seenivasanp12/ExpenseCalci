@@ -1,16 +1,21 @@
-// All requests go to our Express backend (proxied by Vite in dev).
-// The backend holds the Supabase service key — it never reaches the browser.
+// All requests go to our Express backend.
+// In web dev: Vite proxies /api/* to localhost:3001.
+// In Android/iOS builds: set VITE_API_URL to the backend host (e.g. http://10.0.2.2:3001).
+// The backend holds the Supabase service key — it never reaches the client.
 
-export const getToken      = () => sessionStorage.getItem('fe_token')
-export const storeToken    = (t) => sessionStorage.setItem('fe_token', t)
-export const clearToken    = () => sessionStorage.removeItem('fe_token')
+const API_BASE = import.meta.env.VITE_API_URL || ''
 
-export const getAdminToken   = () => sessionStorage.getItem('fe_admin_token')
-export const storeAdminToken = (t) => sessionStorage.setItem('fe_admin_token', t)
-export const clearAdminToken = () => sessionStorage.removeItem('fe_admin_token')
+// localStorage keeps the session alive when the app is backgrounded on mobile.
+export const getToken      = () => localStorage.getItem('fe_token')
+export const storeToken    = (t) => localStorage.setItem('fe_token', t)
+export const clearToken    = () => localStorage.removeItem('fe_token')
+
+export const getAdminToken   = () => localStorage.getItem('fe_admin_token')
+export const storeAdminToken = (t) => localStorage.setItem('fe_admin_token', t)
+export const clearAdminToken = () => localStorage.removeItem('fe_admin_token')
 
 const req = async (method, path, body, token) => {
-  const res = await fetch(path, {
+  const res = await fetch(`${API_BASE}${path}`, {
     method,
     headers: {
       'Content-Type': 'application/json',

@@ -7,7 +7,18 @@
       "Bash(timeout 3 node server.js)",
       "Bash(curl *)",
       "Skill(artifact-design)",
-      "Bash(node --input-type=module)"
+      "Bash(node --input-type=module)",
+      "Bash(adb version *)",
+      "Read(//home/codilar/Android/**)",
+      "Bash(java -version)",
+      "Bash(npm -v)",
+      "Bash(npx cap *)",
+      "Bash(android-studio --version)",
+      "Read(//home/codilar/**)",
+      "Read(//opt/android-studio/**)",
+      "Artifact",
+      "Bash(./gradlew assembleDebug)",
+      "Bash(adb *)"
     ]
   }
 }
