@@ -1,11 +1,13 @@
 import { useState } from 'react'
-import { Plus, Trash2, TrendingUp, Briefcase, Star, Loader2 } from 'lucide-react'
+import { Plus, Trash2, TrendingUp, Briefcase, Star, Loader2, Eye, EyeOff } from 'lucide-react'
+import MaskedAmount from '../MaskedAmount'
 
 export default function EarnTab({ earn, onAdd, onDelete }) {
   const [desc, setDesc]     = useState('')
   const [amount, setAmount] = useState('')
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(null)
+  const [showEarnings, setShowEarnings] = useState(false)
 
   const total = earn.reduce((s, e) => s + Number(e.amount || 0), 0)
 
@@ -30,11 +32,20 @@ export default function EarnTab({ earn, onAdd, onDelete }) {
     <div className="space-y-4">
       {/* Total */}
       <div className="bg-gradient-to-r from-green-400 to-emerald-500 rounded-2xl p-5 text-white">
-        <div className="flex items-center gap-2 opacity-80 mb-1">
-          <TrendingUp size={16} />
-          <span className="text-sm font-medium">Total Earnings this month</span>
+        <div className="flex items-center justify-between mb-1">
+          <div className="flex items-center gap-2 opacity-80">
+            <TrendingUp size={16} />
+            <span className="text-sm font-medium">Total Earnings this month</span>
+          </div>
+          <button
+            onClick={() => setShowEarnings(v => !v)}
+            aria-label={showEarnings ? 'Hide earnings' : 'Show earnings'}
+            className="p-1.5 bg-white/20 hover:bg-white/30 rounded-lg transition-colors"
+          >
+            {showEarnings ? <EyeOff size={15} /> : <Eye size={15} />}
+          </button>
         </div>
-        <p className="text-4xl font-black tracking-tight">₹{total.toLocaleString('en-IN')}</p>
+        <MaskedAmount value={total} show={showEarnings} className="text-4xl font-black tracking-tight block" />
       </div>
 
       {/* Entries */}
@@ -54,7 +65,7 @@ export default function EarnTab({ earn, onAdd, onDelete }) {
                 <p className="font-semibold text-gray-800 truncate">{entry.description}</p>
                 {entry.isSalary && <span className="text-xs bg-green-100 text-green-600 px-2 py-0.5 rounded-full font-medium">Salary</span>}
               </div>
-              <p className="font-black text-green-600 text-lg whitespace-nowrap">₹{Number(entry.amount).toLocaleString('en-IN')}</p>
+              <MaskedAmount value={entry.amount} show={showEarnings} className="font-black text-green-600 text-lg whitespace-nowrap" />
               <button
                 onClick={() => handleDelete(entry.id)}
                 disabled={deleting === entry.id}
@@ -70,7 +81,7 @@ export default function EarnTab({ earn, onAdd, onDelete }) {
       {earn.length > 1 && (
         <div className="bg-green-50 rounded-xl p-3 flex justify-between items-center border border-green-100">
           <span className="text-sm text-gray-500 font-medium">{earn.length} income sources</span>
-          <span className="font-black text-green-600">= ₹{total.toLocaleString('en-IN')}</span>
+          <MaskedAmount value={total} show={showEarnings} prefix="= ₹" className="font-black text-green-600" />
         </div>
       )}
 

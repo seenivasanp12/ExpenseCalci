@@ -1,13 +1,15 @@
 import { useState, useEffect, useCallback } from 'react'
-import { ChevronLeft, ChevronRight, LogOut, TrendingUp, Loader2 } from 'lucide-react'
+import { ChevronLeft, ChevronRight, LogOut, Loader2, Eye, EyeOff } from 'lucide-react'
 import EarnTab        from './tabs/EarnTab'
 import ExpensesTab    from './tabs/ExpensesTab'
 import AchievementTab from './tabs/AchievementTab'
+import CategoriesTab  from './tabs/CategoriesTab'
 import CalculateTab   from './tabs/CalculateTab'
 import {
   getData, addEarning, deleteEarning,
-  upsertExpense, addAchievement, deleteAchievement,
+  addExpense, deleteExpense, addAchievement, deleteAchievement,
 } from '../utils/api'
+import MaskedAmount from './MaskedAmount'
 
 const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December']
 
@@ -15,6 +17,7 @@ const TABS = [
   { id: 'Earn',        color: 'text-green-600 border-green-500 bg-green-50'   },
   { id: 'Expenses',    color: 'text-red-600 border-red-500 bg-red-50'         },
   { id: 'Achievement', color: 'text-amber-600 border-amber-500 bg-amber-50'   },
+  { id: 'Categories',  color: 'text-purple-600 border-purple-500 bg-purple-50'},
   { id: 'Calculate',   color: 'text-indigo-600 border-indigo-500 bg-indigo-50'},
 ]
 
@@ -27,7 +30,7 @@ const COLOR_POOL = [
   'from-teal-500 to-cyan-600',
 ]
 
-const EMPTY = { earn: [], expenses: {}, achievements: [] }
+const EMPTY = { earn: [], expenses: [], achievements: [] }
 
 export default function Dashboard({ user, onLogout }) {
   const now = new Date()
@@ -37,6 +40,7 @@ export default function Dashboard({ user, onLogout }) {
   const [data, setData]       = useState(EMPTY)
   const [loading, setLoading] = useState(true)
   const [error, setError]     = useState(null)
+  const [showAmounts, setShowAmounts] = useState(false)
 
   const gradient = COLOR_POOL[(user?.color_index ?? 0) % COLOR_POOL.length]
 
@@ -72,12 +76,13 @@ export default function Dashboard({ user, onLogout }) {
   }
 
   // ── Expense mutations ─────────────────────────────────────
-  const handleUpdateExpense = async (day, amount, remark) => {
-    await upsertExpense(year, month + 1, day, amount, remark)
-    setData(d => ({
-      ...d,
-      expenses: { ...d.expenses, [day]: { ...(d.expenses[day] || {}), amount, remark } },
-    }))
+  const handleAddExpense = async (day, category, amount, remark) => {
+    const entry = await addExpense(year, month + 1, day, category, amount, remark)
+    setData(d => ({ ...d, expenses: [...d.expenses, entry] }))
+  }
+  const handleDeleteExpense = async (id) => {
+    await deleteExpense(id)
+    setData(d => ({ ...d, expenses: d.expenses.filter(e => e.id !== id) }))
   }
 
   // ── Achievement mutations ─────────────────────────────────
@@ -91,7 +96,7 @@ export default function Dashboard({ user, onLogout }) {
   }
 
   const totalEarn         = data.earn.reduce((s, e) => s + Number(e.amount || 0), 0)
-  const totalExpenses     = Object.values(data.expenses).reduce((s, e) => s + Number(e.amount || 0), 0)
+  const totalExpenses     = data.expenses.reduce((s, e) => s + Number(e.amount || 0), 0)
   const totalAchievement  = data.achievements.reduce((s, a) => s + Number(a.amount || 0), 0)
 
   return (
@@ -108,9 +113,18 @@ export default function Dashboard({ user, onLogout }) {
               <p className="font-black text-xl">{user?.name}</p>
             </div>
           </div>
-          <button onClick={onLogout} className="flex items-center gap-2 bg-white/20 hover:bg-white/30 px-4 py-2 rounded-xl transition-colors text-sm font-semibold">
-            <LogOut size={16} /> Logout
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowAmounts(v => !v)}
+              aria-label={showAmounts ? 'Hide earning details' : 'Show earning details'}
+              className="p-2 bg-white/20 hover:bg-white/30 rounded-xl transition-colors"
+            >
+              {showAmounts ? <EyeOff size={16} /> : <Eye size={16} />}
+            </button>
+            <button onClick={onLogout} className="flex items-center gap-2 bg-white/20 hover:bg-white/30 px-4 py-2 rounded-xl transition-colors text-sm font-semibold">
+              <LogOut size={16} /> Logout
+            </button>
+          </div>
         </div>
         <div className="max-w-2xl mx-auto px-4 pb-4 grid grid-cols-3 gap-2 text-center">
           {[
@@ -120,7 +134,7 @@ export default function Dashboard({ user, onLogout }) {
           ].map(item => (
             <div key={item.label} className="bg-white/10 rounded-xl py-2 px-1">
               <p className="text-xs opacity-70">{item.label}</p>
-              <p className="font-bold text-sm">₹{item.value.toLocaleString('en-IN')}</p>
+              <MaskedAmount value={item.value} show={showAmounts} className="font-bold text-sm block" />
             </div>
           ))}
         </div>
@@ -171,8 +185,9 @@ export default function Dashboard({ user, onLogout }) {
             ) : (
               <>
                 {activeTab === 'Earn'        && <EarnTab        earn={data.earn}         onAdd={handleAddEarning}        onDelete={handleDeleteEarning} />}
-                {activeTab === 'Expenses'    && <ExpensesTab    expenses={data.expenses} onUpdate={handleUpdateExpense}  year={year} month={month} />}
+                {activeTab === 'Expenses'    && <ExpensesTab    expenses={data.expenses} onAdd={handleAddExpense}        onDelete={handleDeleteExpense} year={year} month={month} />}
                 {activeTab === 'Achievement' && <AchievementTab achievements={data.achievements} onAdd={handleAddAchievement} onDelete={handleDeleteAchievement} />}
+                {activeTab === 'Categories'  && <CategoriesTab  expenses={data.expenses} />}
                 {activeTab === 'Calculate'   && <CalculateTab   data={data} year={year} month={month} />}
               </>
             )}

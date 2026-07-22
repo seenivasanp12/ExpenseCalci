@@ -1,19 +1,31 @@
 import { useState } from 'react'
+import { motion } from 'framer-motion'
 import {
-  Calculator, TrendingUp, TrendingDown, Target,
+  Calculator, TrendingUp, TrendingDown,
   PiggyBank, Wallet, CheckCircle2, AlertCircle, ChevronRight,
 } from 'lucide-react'
+import DonutChart from '../DonutChart'
 
 const MONTH_NAMES = [
   'January','February','March','April','May','June',
   'July','August','September','October','November','December',
 ]
 
+// Stagger children on mount — each card animates in after the previous one.
+const cardGrid = {
+  hidden: {},
+  show: { transition: { staggerChildren: 0.15 } },
+}
+const card = {
+  hidden: { opacity: 0, y: 16, scale: 0.96 },
+  show: { opacity: 1, y: 0, scale: 1, transition: { duration: 0.35, ease: 'easeOut' } },
+}
+
 export default function CalculateTab({ data, year, month }) {
   const [calculated, setCalculated] = useState(false)
 
   const totalEarn = data.earn.reduce((s, e) => s + Number(e.amount || 0), 0)
-  const totalExpenses = Object.values(data.expenses).reduce((s, e) => s + Number(e.amount || 0), 0)
+  const totalExpenses = data.expenses.reduce((s, e) => s + Number(e.amount || 0), 0)
   const totalAchievement = data.achievements.reduce((s, a) => s + Number(a.amount || 0), 0)
 
   const salaryEntry = data.earn.find(
@@ -26,42 +38,76 @@ export default function CalculateTab({ data, year, month }) {
   const savingsProgress = targetSaving > 0 ? Math.min(100, Math.round((totalAchievement / targetSaving) * 100)) : 0
   const targetMet = totalAchievement >= targetSaving
 
+  const chartTotal = totalEarn + totalExpenses + totalAchievement
+  const chartSegments = [
+    { key: 'earn',        label: 'Earn',        value: totalEarn,        color: '#22c55e' },
+    { key: 'expenses',     label: 'Expenses',     value: totalExpenses,     color: '#ef4444' },
+    { key: 'achievement', label: 'Achievement', value: totalAchievement, color: '#f59e0b' },
+  ]
+
   return (
     <div className="space-y-4">
-      {/* Summary cards */}
-      <div className="grid grid-cols-2 gap-3">
-        <div className="bg-green-50 border border-green-100 rounded-2xl p-4 text-center">
+      {/* Overview chart — segments draw in one by one: Earn, then Expenses, then Achievement */}
+      {chartTotal > 0 && (
+        <div className="bg-white border border-gray-100 rounded-2xl p-5 flex flex-col items-center gap-4">
+          <DonutChart
+            segments={chartSegments}
+            animated
+            staggerDelay={0.7}
+            centerLabel="This Month"
+            centerValue={<span className="text-lg font-black text-gray-800">₹{chartTotal.toLocaleString('en-IN')}</span>}
+          />
+          <div className="flex flex-wrap justify-center gap-x-5 gap-y-2">
+            {chartSegments.map(s => (
+              <div key={s.key} className="flex items-center gap-1.5 text-xs">
+                <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: s.color }} />
+                <span className="text-gray-500 font-medium">{s.label}</span>
+                <span className="font-bold text-gray-800">₹{s.value.toLocaleString('en-IN')}</span>
+              </div>
+            ))}
+            <div className="flex items-center gap-1.5 text-xs">
+              <span className="w-2.5 h-2.5 rounded-full flex-shrink-0 bg-indigo-500" />
+              <span className="text-gray-500 font-medium">Balance</span>
+              <span className={`font-bold ${remaining >= 0 ? 'text-gray-800' : 'text-red-500'}`}>
+                {remaining < 0 ? '-' : ''}₹{Math.abs(remaining).toLocaleString('en-IN')}
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Summary cards — load in one by one: Earn, Expenses, Achievement, Balance */}
+      <motion.div className="grid grid-cols-2 gap-3" variants={cardGrid} initial="hidden" animate="show">
+        <motion.div variants={card} className="bg-green-50 border border-green-100 rounded-2xl p-4 text-center">
           <TrendingUp size={22} className="text-green-500 mx-auto mb-2" />
           <p className="text-xs text-gray-400 font-medium">Total Earn</p>
           <p className="text-xl font-black text-green-600 mt-0.5">
             ₹{totalEarn.toLocaleString('en-IN')}
           </p>
-        </div>
-        <div className="bg-red-50 border border-red-100 rounded-2xl p-4 text-center">
+        </motion.div>
+        <motion.div variants={card} className="bg-red-50 border border-red-100 rounded-2xl p-4 text-center">
           <TrendingDown size={22} className="text-red-500 mx-auto mb-2" />
           <p className="text-xs text-gray-400 font-medium">Total Expenses</p>
           <p className="text-xl font-black text-red-500 mt-0.5">
             ₹{totalExpenses.toLocaleString('en-IN')}
           </p>
-        </div>
-        <div className="bg-amber-50 border border-amber-100 rounded-2xl p-4 text-center">
+        </motion.div>
+        <motion.div variants={card} className="bg-amber-50 border border-amber-100 rounded-2xl p-4 text-center">
           <PiggyBank size={22} className="text-amber-500 mx-auto mb-2" />
           <p className="text-xs text-gray-400 font-medium">Achievement</p>
           <p className="text-xl font-black text-amber-600 mt-0.5">
             ₹{totalAchievement.toLocaleString('en-IN')}
           </p>
-        </div>
-        <div className="bg-indigo-50 border border-indigo-100 rounded-2xl p-4 text-center">
-          <Target size={22} className="text-indigo-500 mx-auto mb-2" />
-          <p className="text-xs text-gray-400 font-medium">40% Save Target</p>
-          <p className="text-xl font-black text-indigo-600 mt-0.5">
-            ₹{targetSaving.toLocaleString('en-IN')}
+        </motion.div>
+        <motion.div variants={card} className="bg-indigo-50 border border-indigo-100 rounded-2xl p-4 text-center">
+          <Wallet size={22} className="text-indigo-500 mx-auto mb-2" />
+          <p className="text-xs text-gray-400 font-medium">Balance</p>
+          <p className={`text-xl font-black mt-0.5 ${remaining >= 0 ? 'text-indigo-600' : 'text-red-500'}`}>
+            {remaining < 0 ? '-' : ''}₹{Math.abs(remaining).toLocaleString('en-IN')}
           </p>
-          {salaryEntry && (
-            <p className="text-xs text-gray-300 mt-0.5">of ₹{salaryAmount.toLocaleString('en-IN')} salary</p>
-          )}
-        </div>
-      </div>
+          <p className="text-xs text-gray-300 mt-0.5">Earn − Expenses − Achievement</p>
+        </motion.div>
+      </motion.div>
 
       {/* Calculate button */}
       <button

@@ -51,8 +51,10 @@ export const addEarning = (year, month, description, amount, isSalary) =>
 
 export const deleteEarning = (id) => authReq('DELETE', `/api/data/earn/${id}`)
 
-export const upsertExpense = (year, month, day, amount, remark) =>
-  authReq('PUT', `/api/data/expense/${day}`, { year, month, amount, remark })
+export const addExpense = (year, month, day, category, amount, remark) =>
+  authReq('POST', '/api/data/expense', { year, month, day, category, amount, remark })
+
+export const deleteExpense = (id) => authReq('DELETE', `/api/data/expense/${id}`)
 
 export const addAchievement = (year, month, date, amount, remark) =>
   authReq('POST', '/api/data/achievement', { year, month, date, amount, remark })
