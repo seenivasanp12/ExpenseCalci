@@ -2,7 +2,7 @@ import { motion } from 'framer-motion'
 
 // Dependency-free donut chart built from stacked SVG circle strokes.
 // Pass `animated` to have each segment draw in one after another (Framer Motion stagger).
-export default function DonutChart({ segments, size = 180, strokeWidth = 26, centerLabel, centerValue, animated = false, staggerDelay = 0.4 }) {
+export default function DonutChart({ segments, size = 180, strokeWidth = 26, centerLabel, centerValue, animated = false, staggerDelay = 0.4, activeKey, onSegmentSelect }) {
   const total = segments.reduce((s, seg) => s + seg.value, 0)
   const radius = (size - strokeWidth) / 2
   const circumference = 2 * Math.PI * radius
@@ -22,9 +22,15 @@ export default function DonutChart({ segments, size = 180, strokeWidth = 26, cen
         <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke="#f1f5f9" strokeWidth={strokeWidth} />
         {arcs.map((arc, i) => {
           const full = `${arc.dash} ${circumference - arc.dash}`
+          const dimmed = activeKey != null && arc.key !== activeKey
+          const shared = {
+            onClick: onSegmentSelect ? () => onSegmentSelect(arc.key) : undefined,
+            className: onSegmentSelect ? 'cursor-pointer' : undefined,
+            style: { opacity: dimmed ? 0.35 : 1, transition: 'opacity 0.25s' },
+          }
           return animated ? (
             <motion.circle
-              key={i}
+              key={arc.key ?? i}
               cx={size / 2} cy={size / 2} r={radius}
               fill="none"
               stroke={arc.color}
@@ -35,10 +41,11 @@ export default function DonutChart({ segments, size = 180, strokeWidth = 26, cen
               initial={{ strokeDasharray: `0 ${circumference}` }}
               animate={{ strokeDasharray: full }}
               transition={{ duration: 0.9, delay: i * staggerDelay, ease: 'easeOut' }}
+              {...shared}
             />
           ) : (
             <circle
-              key={i}
+              key={arc.key ?? i}
               cx={size / 2} cy={size / 2} r={radius}
               fill="none"
               stroke={arc.color}
@@ -47,6 +54,7 @@ export default function DonutChart({ segments, size = 180, strokeWidth = 26, cen
               strokeDashoffset={-arc.offset}
               strokeLinecap={arcs.length > 1 ? 'butt' : 'round'}
               transform={`rotate(-90 ${size / 2} ${size / 2})`}
+              {...shared}
             />
           )
         })}

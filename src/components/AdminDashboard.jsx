@@ -5,35 +5,37 @@ import {
   Users, Calculator, ChevronDown, ChevronUp,
   CheckCircle2, AlertCircle, BarChart3,
   UserPlus, Trash2, KeyRound, Eye, EyeOff,
-  UserCog, CheckCheck, X, Loader2,
+  UserCog, CheckCheck, X, Loader2, Menu,
 } from 'lucide-react'
 import { getAdminData, addUser, removeUser, changePassword } from '../utils/api'
+import DonutChart from './DonutChart'
+import NavDrawer from './NavDrawer'
+import ChartSkeleton from './ChartSkeleton'
 
 const MONTH_NAMES  = ['January','February','March','April','May','June','July','August','September','October','November','December']
 const MONTH_SHORT  = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
 
 const COLOR_POOL = [
-  { gradient:'from-violet-500 to-purple-600', light:'bg-violet-50',  border:'border-violet-100', text:'text-violet-600',  badge:'bg-violet-100 text-violet-600'  },
-  { gradient:'from-blue-500 to-indigo-600',   light:'bg-blue-50',    border:'border-blue-100',   text:'text-blue-600',    badge:'bg-blue-100 text-blue-600'    },
-  { gradient:'from-rose-500 to-pink-600',     light:'bg-rose-50',    border:'border-rose-100',   text:'text-rose-600',    badge:'bg-rose-100 text-rose-600'    },
-  { gradient:'from-green-500 to-emerald-600', light:'bg-green-50',   border:'border-green-100',  text:'text-green-600',   badge:'bg-green-100 text-green-600'  },
-  { gradient:'from-orange-500 to-amber-600',  light:'bg-orange-50',  border:'border-orange-100', text:'text-orange-600',  badge:'bg-orange-100 text-orange-600' },
-  { gradient:'from-teal-500 to-cyan-600',     light:'bg-teal-50',    border:'border-teal-100',   text:'text-teal-600',    badge:'bg-teal-100 text-teal-600'    },
+  { gradient:'from-violet-500 to-purple-600', light:'bg-violet-50',  border:'border-violet-100', text:'text-violet-600',  badge:'bg-violet-100 text-violet-600',  hex:'#8b5cf6' },
+  { gradient:'from-blue-500 to-indigo-600',   light:'bg-blue-50',    border:'border-blue-100',   text:'text-blue-600',    badge:'bg-blue-100 text-blue-600',    hex:'#3b82f6' },
+  { gradient:'from-rose-500 to-pink-600',     light:'bg-rose-50',    border:'border-rose-100',   text:'text-rose-600',    badge:'bg-rose-100 text-rose-600',    hex:'#f43f5e' },
+  { gradient:'from-green-500 to-emerald-600', light:'bg-green-50',   border:'border-green-100',  text:'text-green-600',   badge:'bg-green-100 text-green-600',  hex:'#22c55e' },
+  { gradient:'from-orange-500 to-amber-600',  light:'bg-orange-50',  border:'border-orange-100', text:'text-orange-600',  badge:'bg-orange-100 text-orange-600', hex:'#f97316' },
+  { gradient:'from-teal-500 to-cyan-600',     light:'bg-teal-50',    border:'border-teal-100',   text:'text-teal-600',    badge:'bg-teal-100 text-teal-600',    hex:'#14b8a6' },
 ]
 const getStyle = (user) => COLOR_POOL[(user.color_index ?? 0) % COLOR_POOL.length]
 
-const TABS = ['Overview','Earnings','Expenses','Savings','Calculate','Users']
+const ADMIN_ACTIVE_COLOR = 'text-indigo-600 border-indigo-500 bg-indigo-50'
+const TABS = [
+  { id: 'Overview',  icon: BarChart3,    color: ADMIN_ACTIVE_COLOR },
+  { id: 'Earnings',  icon: TrendingUp,   color: ADMIN_ACTIVE_COLOR },
+  { id: 'Expenses',  icon: TrendingDown, color: ADMIN_ACTIVE_COLOR },
+  { id: 'Savings',   icon: PiggyBank,    color: ADMIN_ACTIVE_COLOR },
+  { id: 'Calculate', icon: Calculator,   color: ADMIN_ACTIVE_COLOR },
+  { id: 'Users',     icon: Users,        color: ADMIN_ACTIVE_COLOR },
+]
 const fmt  = (n) => `₹${Number(n).toLocaleString('en-IN')}`
 const fmtDate = (d) => { if (!d) return ''; const [y,m,day] = d.split('-'); return `${day} ${MONTH_SHORT[Number(m)-1]}` }
-
-const TAB_ICONS = {
-  Overview:  <BarChart3 size={13} />,
-  Earnings:  <TrendingUp size={13} />,
-  Expenses:  <TrendingDown size={13} />,
-  Savings:   <PiggyBank size={13} />,
-  Calculate: <Calculator size={13} />,
-  Users:     <Users size={13} />,
-}
 
 export default function AdminDashboard({ onLogout }) {
   const now = new Date()
@@ -42,6 +44,11 @@ export default function AdminDashboard({ onLogout }) {
   const [activeTab, setActiveTab] = useState('Overview')
   const [calculated, setCalculated] = useState(false)
   const [expanded, setExpanded]     = useState({})
+  const [menuOpen, setMenuOpen]         = useState(false)
+  const [activeMemberKey, setActiveMemberKey] = useState(null)
+  const [activeCalcKey, setActiveCalcKey]     = useState(null)
+  const toggleActiveMember = (key) => setActiveMemberKey(k => (k === key ? null : key))
+  const toggleActiveCalc   = (key) => setActiveCalcKey(k => (k === key ? null : key))
 
   // ── User list + budget data ────────────────────────────────
   const [userList, setUserList]       = useState([])
@@ -215,29 +222,36 @@ export default function AdminDashboard({ onLogout }) {
       <div className="max-w-3xl mx-auto px-4 pt-5">
         <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
 
-          {/* Pill tab bar */}
-          <div className="px-3 pt-3 pb-0">
-            <div className="flex gap-0.5 p-1 bg-slate-100 rounded-xl overflow-x-auto">
-              {TABS.map(tab => (
-                <button key={tab} onClick={() => setActiveTab(tab)}
-                  className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold whitespace-nowrap flex-shrink-0 transition-all ${
-                    activeTab === tab
-                      ? 'bg-white text-slate-800 shadow-sm'
-                      : 'text-slate-500 hover:text-slate-700'
-                  }`}>
-                  {TAB_ICONS[tab]}
-                  {tab === 'Users' ? `Users (${userList.length})` : tab}
-                </button>
-              ))}
-            </div>
+          {/* Section nav */}
+          <div className="flex items-center gap-3 px-4 py-3 border-b border-slate-100">
+            <button
+              onClick={() => setMenuOpen(true)}
+              aria-label="Open menu"
+              className="p-2 -ml-2 rounded-xl hover:bg-slate-100 transition-colors"
+            >
+              <Menu size={20} className="text-slate-500" />
+            </button>
+            <span className="font-black text-slate-800">{activeTab}</span>
           </div>
+
+          <NavDrawer
+            open={menuOpen}
+            onClose={() => setMenuOpen(false)}
+            tabs={TABS.map(t => ({ ...t, label: t.id === 'Users' ? `Users (${userList.length})` : t.id }))}
+            activeTab={activeTab}
+            onSelect={setActiveTab}
+          />
 
           <div className="p-4">
             {dataLoading && activeTab !== 'Users' && (
-              <div className="flex items-center justify-center py-8 text-indigo-400 gap-2">
-                <Loader2 size={20} className="animate-spin" />
-                <span className="text-sm font-medium">Loading {MONTH_NAMES[month]} data…</span>
-              </div>
+              activeTab === 'Overview' || activeTab === 'Calculate' ? (
+                <ChartSkeleton />
+              ) : (
+                <div className="flex items-center justify-center py-8 text-indigo-400 gap-2">
+                  <Loader2 size={20} className="animate-spin" />
+                  <span className="text-sm font-medium">Loading {MONTH_NAMES[month]} data…</span>
+                </div>
+              )
             )}
 
             {/* ══ OVERVIEW ══ */}
@@ -288,15 +302,33 @@ export default function AdminDashboard({ onLogout }) {
                 {family.earn > 0 && (
                   <div className="bg-white border border-gray-100 rounded-2xl p-4">
                     <div className="flex items-center gap-2 mb-3"><BarChart3 size={16} className="text-slate-400"/><p className="text-sm font-bold text-gray-600">Earnings Contribution</p></div>
-                    {userList.map(u => {
-                      const pct = Math.round(((userStats[u.id]?.earn||0)/family.earn)*100); const style=getStyle(u)
-                      return (
-                        <div key={u.id} className="mb-2">
-                          <div className="flex justify-between text-xs mb-1"><span className="font-semibold text-gray-600">{u.name}</span><span className={`font-bold ${style.text}`}>{pct}% — {fmt(userStats[u.id]?.earn||0)}</span></div>
-                          <div className="bg-gray-100 rounded-full h-2.5"><div className={`bg-gradient-to-r ${style.gradient} rounded-full h-2.5 transition-all`} style={{width:`${pct}%`}}/></div>
-                        </div>
-                      )
-                    })}
+                    <div className="flex justify-center py-2">
+                      <DonutChart
+                        segments={userList.map(u => ({ key: u.id, value: userStats[u.id]?.earn || 0, color: getStyle(u).hex }))}
+                        activeKey={activeMemberKey}
+                        onSegmentSelect={toggleActiveMember}
+                      />
+                    </div>
+                    <div className="divide-y divide-gray-50">
+                      {userList.map(u => {
+                        const pct    = Math.round(((userStats[u.id]?.earn||0)/family.earn)*100)
+                        const style  = getStyle(u)
+                        const active = activeMemberKey === u.id
+                        const dimmed = activeMemberKey != null && !active
+                        return (
+                          <button
+                            key={u.id}
+                            onClick={() => toggleActiveMember(u.id)}
+                            className={`w-full flex items-center gap-3 py-2.5 text-left transition-all ${active ? 'bg-gray-50' : ''} ${dimmed ? 'opacity-40' : 'opacity-100'}`}
+                          >
+                            <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: style.hex }} />
+                            <span className={`flex-1 min-w-0 text-sm truncate ${active ? 'font-black text-gray-900' : 'font-semibold text-gray-600'}`}>{u.name}</span>
+                            <span className="font-bold text-gray-700 text-sm whitespace-nowrap">{fmt(userStats[u.id]?.earn||0)}</span>
+                            <span className={`text-xs w-12 text-right whitespace-nowrap ${active ? 'font-black text-gray-700' : 'font-bold text-gray-400'}`}>{pct}%</span>
+                          </button>
+                        )
+                      })}
+                    </div>
                   </div>
                 )}
               </div>
@@ -397,6 +429,49 @@ export default function AdminDashboard({ onLogout }) {
             {activeTab === 'Calculate' && !dataLoading && (
               <div className="space-y-4">
                 <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">Family Budget — {MONTH_NAMES[month]} {year}</p>
+
+                {(family.earn + family.expenses + family.achievements) > 0 && (
+                  <div className="bg-white border border-gray-100 rounded-2xl p-5 flex flex-col items-center gap-4">
+                    <DonutChart
+                      segments={[
+                        { key: 'earn',        label: 'Earn',        value: family.earn,         color: '#22c55e' },
+                        { key: 'expenses',    label: 'Expenses',    value: family.expenses,     color: '#ef4444' },
+                        { key: 'savings',     label: 'Savings',     value: family.achievements, color: '#f59e0b' },
+                      ]}
+                      activeKey={activeCalcKey}
+                      onSegmentSelect={toggleActiveCalc}
+                    />
+                    <div className="flex flex-wrap justify-center gap-x-5 gap-y-2">
+                      {[
+                        { key: 'earn',     label: 'Earn',     value: family.earn,         color: '#22c55e' },
+                        { key: 'expenses', label: 'Expenses', value: family.expenses,     color: '#ef4444' },
+                        { key: 'savings',  label: 'Savings',  value: family.achievements, color: '#f59e0b' },
+                      ].map(s => {
+                        const active = activeCalcKey === s.key
+                        const dimmed = activeCalcKey != null && !active
+                        return (
+                          <button
+                            key={s.key}
+                            onClick={() => toggleActiveCalc(s.key)}
+                            className={`flex items-center gap-1.5 text-xs transition-opacity ${dimmed ? 'opacity-40' : 'opacity-100'}`}
+                          >
+                            <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: s.color }} />
+                            <span className={active ? 'text-gray-800 font-bold' : 'text-gray-500 font-medium'}>{s.label}</span>
+                            <span className="font-bold text-gray-800">{fmt(s.value)}</span>
+                          </button>
+                        )
+                      })}
+                      <div className="flex items-center gap-1.5 text-xs">
+                        <span className="w-2.5 h-2.5 rounded-full flex-shrink-0 bg-indigo-500" />
+                        <span className="text-gray-500 font-medium">Balance</span>
+                        <span className={`font-bold ${family.balance >= 0 ? 'text-gray-800' : 'text-red-500'}`}>
+                          {family.balance < 0 ? '-' : ''}{fmt(Math.abs(family.balance))}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 <div className="grid grid-cols-2 gap-3">
                   {[
                     {icon:<TrendingUp size={22} className="text-green-500 mx-auto mb-2"/>,l:'Family Earn',v:family.earn,c:'text-green-600',bg:'bg-green-50 border-green-100'},

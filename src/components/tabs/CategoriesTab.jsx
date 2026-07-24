@@ -1,8 +1,12 @@
+import { useState } from 'react'
 import { LayoutGrid } from 'lucide-react'
 import { CATEGORIES } from '../../utils/categories'
 import DonutChart from '../DonutChart'
 
 export default function CategoriesTab({ expenses }) {
+  const [activeKey, setActiveKey] = useState(null)
+  const toggleActive = (key) => setActiveKey(k => (k === key ? null : key))
+
   const totals = {}
   expenses.forEach(e => {
     const id = e.category || 'others'
@@ -15,7 +19,7 @@ export default function CategoriesTab({ expenses }) {
     .sort((a, b) => b.total - a.total)
 
   const grandTotal = rows.reduce((s, r) => s + r.total, 0)
-  const segments   = rows.map(r => ({ value: r.total, color: r.hex }))
+  const segments   = rows.map(r => ({ key: r.id, value: r.total, color: r.hex }))
 
   return (
     <div className="space-y-5">
@@ -35,8 +39,8 @@ export default function CategoriesTab({ expenses }) {
           <div className="flex justify-center py-2">
             <DonutChart
               segments={segments}
-              centerLabel="Total Spent"
-              centerValue={<span className="text-xl font-black text-gray-800">₹{grandTotal.toLocaleString('en-IN')}</span>}
+              activeKey={activeKey}
+              onSegmentSelect={toggleActive}
             />
           </div>
 
@@ -48,18 +52,26 @@ export default function CategoriesTab({ expenses }) {
             </div>
             <div className="divide-y divide-gray-50">
               {rows.map(c => {
-                const Icon = c.icon
-                const pct  = grandTotal > 0 ? (c.total / grandTotal) * 100 : 0
+                const Icon   = c.icon
+                const pct    = grandTotal > 0 ? (c.total / grandTotal) * 100 : 0
+                const active = activeKey === c.id
+                const dimmed = activeKey != null && !active
                 return (
-                  <div key={c.id} className="flex items-center gap-3 px-4 py-3">
+                  <button
+                    key={c.id}
+                    onClick={() => toggleActive(c.id)}
+                    className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-all ${
+                      active ? 'bg-gray-50' : ''
+                    } ${dimmed ? 'opacity-40' : 'opacity-100'}`}
+                  >
                     <span className={`w-2 h-2 rounded-full flex-shrink-0 ${c.dot}`} />
                     <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${c.bg}`}>
                       <Icon size={15} className={c.text} />
                     </div>
-                    <span className="flex-1 min-w-0 font-semibold text-gray-800 text-sm truncate">{c.label}</span>
+                    <span className={`flex-1 min-w-0 text-sm truncate ${active ? 'font-black text-gray-900' : 'font-semibold text-gray-800'}`}>{c.label}</span>
                     <span className="font-bold text-gray-700 text-sm whitespace-nowrap">₹{c.total.toLocaleString('en-IN')}</span>
-                    <span className="text-xs font-bold text-gray-400 w-14 text-right whitespace-nowrap">{pct.toFixed(2)}%</span>
-                  </div>
+                    <span className={`text-xs w-14 text-right whitespace-nowrap ${active ? 'font-black text-gray-700' : 'font-bold text-gray-400'}`}>{pct.toFixed(2)}%</span>
+                  </button>
                 )
               })}
             </div>

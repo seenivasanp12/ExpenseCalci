@@ -1,5 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
-import { ChevronLeft, ChevronRight, LogOut, Loader2, Eye, EyeOff } from 'lucide-react'
+import {
+  ChevronLeft, ChevronRight, LogOut, Loader2, Eye, EyeOff, Menu,
+  TrendingUp, ShoppingCart, PiggyBank, LayoutGrid, Calculator,
+} from 'lucide-react'
 import EarnTab        from './tabs/EarnTab'
 import ExpensesTab    from './tabs/ExpensesTab'
 import AchievementTab from './tabs/AchievementTab'
@@ -10,15 +13,17 @@ import {
   addExpense, deleteExpense, addAchievement, deleteAchievement,
 } from '../utils/api'
 import MaskedAmount from './MaskedAmount'
+import NavDrawer from './NavDrawer'
+import ChartSkeleton from './ChartSkeleton'
 
 const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December']
 
 const TABS = [
-  { id: 'Earn',        color: 'text-green-600 border-green-500 bg-green-50'   },
-  { id: 'Expenses',    color: 'text-red-600 border-red-500 bg-red-50'         },
-  { id: 'Achievement', color: 'text-amber-600 border-amber-500 bg-amber-50'   },
-  { id: 'Categories',  color: 'text-purple-600 border-purple-500 bg-purple-50'},
-  { id: 'Calculate',   color: 'text-indigo-600 border-indigo-500 bg-indigo-50'},
+  { id: 'Earn',        icon: TrendingUp,   color: 'text-green-600 border-green-500 bg-green-50'   },
+  { id: 'Expenses',    icon: ShoppingCart, color: 'text-red-600 border-red-500 bg-red-50'         },
+  { id: 'Achievement', icon: PiggyBank,    color: 'text-amber-600 border-amber-500 bg-amber-50'   },
+  { id: 'Categories',  icon: LayoutGrid,   color: 'text-purple-600 border-purple-500 bg-purple-50'},
+  { id: 'Calculate',   icon: Calculator,   color: 'text-indigo-600 border-indigo-500 bg-indigo-50'},
 ]
 
 const COLOR_POOL = [
@@ -36,11 +41,12 @@ export default function Dashboard({ user, onLogout }) {
   const now = new Date()
   const [year, setYear]       = useState(now.getFullYear())
   const [month, setMonth]     = useState(now.getMonth())
-  const [activeTab, setActiveTab] = useState('Earn')
+  const [activeTab, setActiveTab] = useState('Expenses')
   const [data, setData]       = useState(EMPTY)
   const [loading, setLoading] = useState(true)
   const [error, setError]     = useState(null)
   const [showAmounts, setShowAmounts] = useState(false)
+  const [menuOpen, setMenuOpen] = useState(false)
 
   const gradient = COLOR_POOL[(user?.color_index ?? 0) % COLOR_POOL.length]
 
@@ -62,7 +68,7 @@ export default function Dashboard({ user, onLogout }) {
     let m = month + dir, y = year
     if (m < 0)  { m = 11; y-- }
     if (m > 11) { m = 0;  y++ }
-    setMonth(m); setYear(y); setActiveTab('Earn')
+    setMonth(m); setYear(y); setActiveTab('Expenses')
   }
 
   // ── Earn mutations ────────────────────────────────────────
@@ -155,28 +161,37 @@ export default function Dashboard({ user, onLogout }) {
           </button>
         </div>
 
-        {/* Tabs */}
+        {/* Section nav */}
         <div className="bg-white rounded-2xl shadow-md overflow-hidden">
-          <div className="flex border-b border-gray-100">
-            {TABS.map(tab => (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={`flex-1 py-3 text-xs sm:text-sm font-bold transition-all ${
-                  activeTab === tab.id ? `${tab.color} border-b-2` : 'text-gray-400 hover:text-gray-600 hover:bg-gray-50'
-                }`}
-              >
-                {tab.id}
-              </button>
-            ))}
+          <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-100">
+            <button
+              onClick={() => setMenuOpen(true)}
+              aria-label="Open menu"
+              className="p-2 -ml-2 rounded-xl hover:bg-gray-100 transition-colors"
+            >
+              <Menu size={20} className="text-gray-500" />
+            </button>
+            <span className="font-black text-gray-800">{activeTab}</span>
           </div>
+
+          <NavDrawer
+            open={menuOpen}
+            onClose={() => setMenuOpen(false)}
+            tabs={TABS}
+            activeTab={activeTab}
+            onSelect={setActiveTab}
+          />
 
           <div className="p-4">
             {loading ? (
-              <div className="flex flex-col items-center justify-center py-16 text-indigo-400 gap-3">
-                <Loader2 size={32} className="animate-spin" />
-                <p className="text-sm font-medium">Loading {MONTH_NAMES[month]} data…</p>
-              </div>
+              activeTab === 'Categories' || activeTab === 'Calculate' ? (
+                <ChartSkeleton />
+              ) : (
+                <div className="flex flex-col items-center justify-center py-16 text-indigo-400 gap-3">
+                  <Loader2 size={32} className="animate-spin" />
+                  <p className="text-sm font-medium">Loading {MONTH_NAMES[month]} data…</p>
+                </div>
+              )
             ) : error ? (
               <div className="text-center py-12">
                 <p className="text-red-500 font-medium mb-3">{error}</p>

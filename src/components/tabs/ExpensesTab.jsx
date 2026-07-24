@@ -1,6 +1,7 @@
 import { useState } from 'react'
-import { ShoppingCart, Plus, Trash2, Loader2, PartyPopper } from 'lucide-react'
+import { ShoppingCart, Plus, Trash2, Loader2, PartyPopper, Eye, EyeOff } from 'lucide-react'
 import { CATEGORIES, getCategory } from '../../utils/categories'
+import MaskedAmount from '../MaskedAmount'
 
 const DAY_NAMES   = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
 const MONTH_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
@@ -18,6 +19,7 @@ export default function ExpensesTab({ expenses, onAdd, onDelete, year, month }) 
   const [remark, setRemark]     = useState('')
   const [saving, setSaving]     = useState(false)
   const [deleting, setDeleting] = useState(null)
+  const [showTotal, setShowTotal] = useState(false)
 
   const total = expenses.reduce((s, e) => s + Number(e.amount || 0), 0)
 
@@ -46,11 +48,20 @@ export default function ExpensesTab({ expenses, onAdd, onDelete, year, month }) 
     <div className="space-y-4">
       {/* Total */}
       <div className="bg-gradient-to-r from-red-400 to-orange-500 rounded-2xl p-5 text-white">
-        <div className="flex items-center gap-2 opacity-80 mb-1">
-          <ShoppingCart size={16} />
-          <span className="text-sm font-medium">Total Expenses this month</span>
+        <div className="flex items-center justify-between mb-1">
+          <div className="flex items-center gap-2 opacity-80">
+            <ShoppingCart size={16} />
+            <span className="text-sm font-medium">Total Expenses this month</span>
+          </div>
+          <button
+            onClick={() => setShowTotal(v => !v)}
+            aria-label={showTotal ? 'Hide total expenses' : 'Show total expenses'}
+            className="p-1.5 bg-white/20 hover:bg-white/30 rounded-lg transition-colors"
+          >
+            {showTotal ? <EyeOff size={16} /> : <Eye size={16} />}
+          </button>
         </div>
-        <p className="text-4xl font-black tracking-tight">₹{total.toLocaleString('en-IN')}</p>
+        <MaskedAmount value={total} show={showTotal} className="text-4xl font-black tracking-tight block" />
         <p className="text-xs opacity-70 mt-1">{expenses.length} {expenses.length === 1 ? 'entry' : 'entries'} across {groupedDays.length} of {days} days</p>
       </div>
 

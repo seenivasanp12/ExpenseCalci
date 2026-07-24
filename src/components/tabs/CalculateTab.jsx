@@ -23,6 +23,8 @@ const card = {
 
 export default function CalculateTab({ data, year, month }) {
   const [calculated, setCalculated] = useState(false)
+  const [activeKey, setActiveKey] = useState(null)
+  const toggleActive = (key) => setActiveKey(k => (k === key ? null : key))
 
   const totalEarn = data.earn.reduce((s, e) => s + Number(e.amount || 0), 0)
   const totalExpenses = data.expenses.reduce((s, e) => s + Number(e.amount || 0), 0)
@@ -54,17 +56,25 @@ export default function CalculateTab({ data, year, month }) {
             segments={chartSegments}
             animated
             staggerDelay={0.7}
-            centerLabel="This Month"
-            centerValue={<span className="text-lg font-black text-gray-800">₹{chartTotal.toLocaleString('en-IN')}</span>}
+            activeKey={activeKey}
+            onSegmentSelect={toggleActive}
           />
           <div className="flex flex-wrap justify-center gap-x-5 gap-y-2">
-            {chartSegments.map(s => (
-              <div key={s.key} className="flex items-center gap-1.5 text-xs">
-                <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: s.color }} />
-                <span className="text-gray-500 font-medium">{s.label}</span>
-                <span className="font-bold text-gray-800">₹{s.value.toLocaleString('en-IN')}</span>
-              </div>
-            ))}
+            {chartSegments.map(s => {
+              const active = activeKey === s.key
+              const dimmed = activeKey != null && !active
+              return (
+                <button
+                  key={s.key}
+                  onClick={() => toggleActive(s.key)}
+                  className={`flex items-center gap-1.5 text-xs transition-opacity ${dimmed ? 'opacity-40' : 'opacity-100'}`}
+                >
+                  <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: s.color }} />
+                  <span className={active ? 'text-gray-800 font-bold' : 'text-gray-500 font-medium'}>{s.label}</span>
+                  <span className="font-bold text-gray-800">₹{s.value.toLocaleString('en-IN')}</span>
+                </button>
+              )
+            })}
             <div className="flex items-center gap-1.5 text-xs">
               <span className="w-2.5 h-2.5 rounded-full flex-shrink-0 bg-indigo-500" />
               <span className="text-gray-500 font-medium">Balance</span>
