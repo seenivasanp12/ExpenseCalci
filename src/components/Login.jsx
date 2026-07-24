@@ -11,7 +11,7 @@ const GRADIENTS = [
   'from-teal-500 to-cyan-600',
 ]
 
-export default function Login({ username, onSuccess, onBack }) {
+export default function Login({ familyCode, username, onSuccess, onBack }) {
   const [password, setPassword]       = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError]             = useState('')
@@ -24,7 +24,7 @@ export default function Login({ username, onSuccess, onBack }) {
     setLoading(true)
     setError('')
     try {
-      const { token, user } = await loginUser(username, password)
+      const { token, user } = await loginUser(familyCode, username, password)
       storeToken(token)
       onSuccess(user)
     } catch (err) {

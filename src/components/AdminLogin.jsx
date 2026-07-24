@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Eye, EyeOff, Lock, ArrowLeft, ShieldCheck } from 'lucide-react'
 import { loginAdmin, storeAdminToken } from '../utils/api'
 
-export default function AdminLogin({ onSuccess, onBack }) {
+export default function AdminLogin({ familyCode, onSuccess, onBack }) {
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState('')
@@ -12,7 +12,7 @@ export default function AdminLogin({ onSuccess, onBack }) {
     e.preventDefault()
     setLoading(true); setError('')
     try {
-      const { token } = await loginAdmin(password)
+      const { token } = await loginAdmin(familyCode, password)
       storeAdminToken(token)
       onSuccess()
     } catch (err) {

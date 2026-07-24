@@ -3,9 +3,10 @@ import express from 'express'
 import cors from 'cors'
 import helmet from 'helmet'
 import rateLimit from 'express-rate-limit'
-import authRoutes  from './routes/auth.js'
-import usersRoutes from './routes/users.js'
-import dataRoutes  from './routes/data.js'
+import authRoutes     from './routes/auth.js'
+import usersRoutes    from './routes/users.js'
+import dataRoutes     from './routes/data.js'
+import familiesRoutes from './routes/families.js'
 
 const app  = express()
 const PORT = process.env.PORT || 3001
@@ -38,16 +39,19 @@ app.use(express.json({ limit: '100kb' }))
 // Global rate limiter: 300 req / 15 min
 app.use('/api/', rateLimit({ windowMs: 15 * 60 * 1000, max: 300 }))
 
-// Stricter limiter on auth endpoints: 20 req / 15 min
-app.use('/api/auth/', rateLimit({
+// Stricter limiter on auth + family signup/lookup endpoints: 20 req / 15 min
+const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 20,
-  message: { error: 'Too many login attempts. Please wait 15 minutes.' },
-}))
+  message: { error: 'Too many attempts. Please wait 15 minutes.' },
+})
+app.use('/api/auth/',     authLimiter)
+app.use('/api/families/', authLimiter)
 
-app.use('/api/auth',  authRoutes)
-app.use('/api/users', usersRoutes)
-app.use('/api/data',  dataRoutes)
+app.use('/api/auth',     authRoutes)
+app.use('/api/users',    usersRoutes)
+app.use('/api/data',     dataRoutes)
+app.use('/api/families', familiesRoutes)
 
 app.get('/health', (_req, res) => res.json({ ok: true }))
 

@@ -30,12 +30,18 @@ const req = async (method, path, body, token) => {
 const authReq  = (method, path, body) => req(method, path, body, getToken())
 const adminReq = (method, path, body) => req(method, path, body, getAdminToken())
 
+// ── Families ─────────────────────────────────────────────────────────────────
+export const signupFamily = ({ familyName, accountantName, email, mobile, password }) =>
+  req('POST', '/api/families/signup', { familyName, accountantName, email, mobile, password })
+
+export const lookupFamily = (code) => req('POST', '/api/families/lookup', { code })
+
 // ── Auth ────────────────────────────────────────────────────────────────────
-export const loginUser  = (name, password) => req('POST', '/api/auth/login', { name, password })
-export const loginAdmin = (password)       => req('POST', '/api/auth/admin', { password })
+export const loginUser  = (code, name, password) => req('POST', '/api/auth/login', { code, name, password })
+export const loginAdmin = (code, password)       => req('POST', '/api/auth/admin', { code, password })
 
 // ── Users (public — welcome screen) ────────────────────────────────────────
-export const getUsers = () => req('GET', '/api/users')
+export const getUsers = (code) => req('GET', `/api/users?code=${encodeURIComponent(code)}`)
 
 // ── Users (admin JWT required) ──────────────────────────────────────────────
 export const addUser        = (name, password, color_index) =>

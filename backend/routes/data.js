@@ -85,12 +85,14 @@ router.delete('/achievement/:id', requireAuth, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }) }
 })
 
-// ── Admin route — all users' data in one shot ──────────────────────────────
+// ── Admin route — all users' data in one shot (scoped to the admin's family) ──
 router.get('/admin/:year/:month', requireAdmin, async (req, res) => {
   try {
     const { year, month } = req.params
     const { data: users, error } = await supabase
-      .from('family_users').select('id, name, color_index').order('created_at')
+      .from('family_users').select('id, name, color_index')
+      .eq('family_id', req.user.family_id)
+      .order('created_at')
     if (error) throw error
     const entries = await Promise.all((users || []).map(async u => [u.id, await fetchUserData(u.id, year, month)]))
     res.json({ users: users || [], allData: Object.fromEntries(entries) })

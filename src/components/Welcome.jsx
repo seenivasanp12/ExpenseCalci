@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Monitor, Sparkles, ShieldCheck, Loader2 } from 'lucide-react'
+import { Monitor, Sparkles, ShieldCheck, Loader2, Users } from 'lucide-react'
 import { getUsers } from '../utils/api'
 
 const COLOR_POOL = [
@@ -11,31 +11,31 @@ const COLOR_POOL = [
   { gradient: 'from-teal-500 to-cyan-600',     border: 'hover:border-teal-300',   shadow: 'hover:shadow-teal-200',   tag: 'bg-teal-100 text-teal-600'   },
 ]
 
-export default function Welcome({ onUserSelect, onAdminAccess }) {
+export default function Welcome({ family, onUserSelect, onAdminAccess, onSwitchFamily }) {
   const [users, setUsers]   = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError]   = useState(null)
 
   useEffect(() => {
-    getUsers()
+    getUsers(family?.code)
       .then(setUsers)
       .catch(() => setError('Cannot connect to database. Check your .env credentials.'))
       .finally(() => setLoading(false))
-  }, [])
+  }, [family?.code])
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center p-6">
       {/* Hero */}
-      <div className="text-center mb-14 animate-fade-in">
+      <div className="text-center mb-14 animate-fade-in px-4">
         <div className="flex items-center justify-center gap-3 mb-5">
-          <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg shadow-indigo-200">
+          <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg shadow-indigo-200 flex-shrink-0">
             <Monitor size={28} className="text-white" />
           </div>
-          <h1 className="text-5xl font-black bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent tracking-tight">
-            Tech World
+          <h1 className="text-3xl sm:text-5xl font-black bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent tracking-tight break-words max-w-full">
+            {family?.name || 'Family Expenses'}
           </h1>
         </div>
-        <p className="text-3xl font-bold text-gray-700">Hi Welcome to Tech World</p>
+        <p className="text-3xl font-bold text-gray-700">Hi, welcome back!</p>
         <p className="text-gray-400 mt-3 text-lg flex items-center justify-center gap-2">
           <Sparkles size={16} className="text-indigo-400" />
           Family Expenses Tracker — Select your profile
@@ -87,6 +87,14 @@ export default function Welcome({ onUserSelect, onAdminAccess }) {
       >
         <ShieldCheck size={18} />
         Admin Panel — Family Budget
+      </button>
+
+      <button
+        onClick={onSwitchFamily}
+        className="mt-4 flex items-center gap-1.5 text-xs text-gray-400 hover:text-indigo-500 transition-colors font-medium"
+      >
+        <Users size={13} />
+        Not your family? Switch
       </button>
 
       <p className="mt-6 text-xs text-gray-300 tracking-widest uppercase">Family Expenses © 2026</p>

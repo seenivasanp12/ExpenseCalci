@@ -11,13 +11,18 @@ const sha256Hex = (str) => createHash('sha256').update(str).digest('hex')
 
 router.post('/login', async (req, res) => {
   try {
-    const { name, password } = req.body
-    if (!name?.trim() || !password)
-      return res.status(400).json({ error: 'Name and password are required.' })
+    const { code, name, password } = req.body
+    if (!code?.trim() || !name?.trim() || !password)
+      return res.status(400).json({ error: 'Family code, name and password are required.' })
+
+    const { data: family } = await supabase
+      .from('families').select('id').eq('code', code.trim().toUpperCase()).maybeSingle()
+    if (!family) return res.status(401).json({ error: 'Incorrect family code, name or password.' })
 
     const { data: user } = await supabase
       .from('family_users')
       .select('id, name, color_index, password')
+      .eq('family_id', family.id)
       .eq('name', name.trim())
       .maybeSingle()
 
@@ -40,7 +45,7 @@ router.post('/login', async (req, res) => {
     if (!valid) return res.status(401).json({ error: 'Incorrect name or password.' })
 
     const token = jwt.sign(
-      { id: user.id, name: user.name, color_index: user.color_index, role: 'member' },
+      { id: user.id, name: user.name, color_index: user.color_index, role: 'member', family_id: family.id },
       process.env.JWT_SECRET,
       { expiresIn: '7d' }
     )
@@ -54,14 +59,21 @@ router.post('/login', async (req, res) => {
 
 router.post('/admin', async (req, res) => {
   try {
-    const { password } = req.body
-    if (!password) return res.status(400).json({ error: 'Password required.' })
-    if (password !== process.env.ADMIN_PASSWORD)
-      return res.status(401).json({ error: 'Incorrect admin password.' })
+    const { code, password } = req.body
+    if (!code?.trim() || !password)
+      return res.status(400).json({ error: 'Family code and password are required.' })
 
-    const token = jwt.sign({ role: 'admin' }, process.env.JWT_SECRET, { expiresIn: '4h' })
+    const { data: family } = await supabase
+      .from('families').select('id, password_hash').eq('code', code.trim().toUpperCase()).maybeSingle()
+    if (!family) return res.status(401).json({ error: 'Incorrect family code or password.' })
+
+    const valid = await bcrypt.compare(password, family.password_hash)
+    if (!valid) return res.status(401).json({ error: 'Incorrect family code or password.' })
+
+    const token = jwt.sign({ role: 'admin', family_id: family.id }, process.env.JWT_SECRET, { expiresIn: '4h' })
     res.json({ token })
-  } catch {
+  } catch (err) {
+    console.error('Admin login error:', err)
     res.status(500).json({ error: 'Server error.' })
   }
 })
