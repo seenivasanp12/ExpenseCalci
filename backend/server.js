@@ -7,6 +7,8 @@ import authRoutes     from './routes/auth.js'
 import usersRoutes    from './routes/users.js'
 import dataRoutes     from './routes/data.js'
 import familiesRoutes from './routes/families.js'
+import cardsRoutes    from './routes/cards.js'
+import emiRoutes      from './routes/emi.js'
 
 const app  = express()
 const PORT = process.env.PORT || 3001
@@ -52,6 +54,8 @@ app.use('/api/auth',     authRoutes)
 app.use('/api/users',    usersRoutes)
 app.use('/api/data',     dataRoutes)
 app.use('/api/families', familiesRoutes)
+app.use('/api/cards',    cardsRoutes)
+app.use('/api/emi',      emiRoutes)
 
 app.get('/health', (_req, res) => res.json({ ok: true }))
 

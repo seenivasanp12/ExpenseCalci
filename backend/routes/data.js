@@ -12,7 +12,10 @@ const fetchUserData = async (userId, year, month) => {
   ])
   return {
     earn: (earnRows || []).map(e => ({ id: e.id, description: e.description, amount: e.amount, isSalary: e.is_salary })),
-    expenses: (expRows || []).map(e => ({ id: e.id, day: e.day, category: e.category, amount: e.amount, remark: e.remark ?? '' })),
+    expenses: (expRows || []).map(e => ({
+      id: e.id, day: e.day, category: e.category, amount: e.amount, remark: e.remark ?? '',
+      paymentMethod: e.payment_method ?? 'cash', cardId: e.card_id ?? null,
+    })),
     achievements: (achRows || []).map(a => ({ id: a.id, date: a.entry_date, amount: a.amount, remark: a.remark })),
   }
 }
@@ -47,17 +50,36 @@ router.delete('/earn/:id', requireAuth, async (req, res) => {
 
 router.post('/expense', requireAuth, async (req, res) => {
   try {
-    const { year, month, day, category, amount, remark } = req.body
+    const { year, month, day, category, amount, remark, paymentMethod, cardId } = req.body
+    const method = paymentMethod || 'cash'
+    if (method === 'credit_card' && !cardId)
+      return res.status(400).json({ error: 'Select a card for credit card expenses.' })
+
     const { data, error } = await supabase.from('expenses')
-      .insert({ user_id: req.user.id, year, month, day, category, amount: Number(amount) || 0, remark: remark || '' })
+      .insert({
+        user_id: req.user.id, year, month, day, category, amount: Number(amount) || 0, remark: remark || '',
+        payment_method: method, card_id: method === 'credit_card' ? cardId : null,
+      })
       .select().single()
     if (error) throw error
-    res.json({ id: data.id, day: data.day, category: data.category, amount: data.amount, remark: data.remark })
+    res.json({
+      id: data.id, day: data.day, category: data.category, amount: data.amount, remark: data.remark,
+      paymentMethod: data.payment_method, cardId: data.card_id,
+    })
   } catch (err) { res.status(500).json({ error: err.message }) }
 })
 
 router.delete('/expense/:id', requireAuth, async (req, res) => {
   try {
+    // A "Bill Payment" expense is linked back from credit_card_payments via
+    // expense_id (ON DELETE SET NULL) — deleting the expense alone would
+    // leave that payment record behind, so the statement would still show
+    // as paid even though its expense entry is gone. Deleting the expense
+    // should undo the payment too, so the statement goes back to being due.
+    const { error: payErr } = await supabase.from('credit_card_payments')
+      .delete().eq('expense_id', req.params.id)
+    if (payErr) throw payErr
+
     const { error } = await supabase.from('expenses')
       .delete().eq('id', req.params.id).eq('user_id', req.user.id)
     if (error) throw error

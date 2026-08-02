@@ -1,13 +1,15 @@
 import { useState } from 'react'
-import { ShoppingCart, Plus, Trash2, Loader2, PartyPopper, Eye, EyeOff } from 'lucide-react'
+import { ShoppingCart, Plus, Trash2, Loader2, PartyPopper, Eye, EyeOff, Wallet, CreditCard } from 'lucide-react'
 import { CATEGORIES, getCategory } from '../../utils/categories'
+import { PAYMENT_METHODS, getPaymentMethod } from '../../utils/paymentMethods'
+import { cashBasisTotal, creditSpendTotal } from '../../utils/expenseTotals'
 import MaskedAmount from '../MaskedAmount'
 
 const DAY_NAMES   = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
 const MONTH_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
 const getDays     = (year, month) => new Date(year, month + 1, 0).getDate()
 
-export default function ExpensesTab({ expenses, onAdd, onDelete, year, month }) {
+export default function ExpensesTab({ expenses, onAdd, onDelete, year, month, cards = [] }) {
   const days = getDays(year, month)
   const now            = new Date()
   const isCurrentMonth = now.getFullYear() === year && now.getMonth() === month
@@ -17,17 +19,26 @@ export default function ExpensesTab({ expenses, onAdd, onDelete, year, month }) 
   const [category, setCategory] = useState('')
   const [amount, setAmount]     = useState('')
   const [remark, setRemark]     = useState('')
+  const [paymentMethod, setPaymentMethod] = useState('cash')
+  const [cardId, setCardId]     = useState('')
   const [saving, setSaving]     = useState(false)
   const [deleting, setDeleting] = useState(null)
   const [showTotal, setShowTotal] = useState(false)
 
-  const total = expenses.reduce((s, e) => s + Number(e.amount || 0), 0)
+  const nonCreditTotal = cashBasisTotal(expenses)
+  const creditTotal = creditSpendTotal(expenses)
+  const needsCard = paymentMethod === 'credit_card'
+
+  const handleSelectMethod = (id) => {
+    setPaymentMethod(id)
+    if (id !== 'credit_card') setCardId('')
+  }
 
   const handleAdd = async () => {
-    if (!category || !amount) return
+    if (!category || !amount || (needsCard && !cardId)) return
     setSaving(true)
     try {
-      await onAdd(day, category, Number(amount), remark)
+      await onAdd(day, category, Number(amount), remark, paymentMethod, needsCard ? cardId : null)
       setAmount(''); setRemark('')
     } finally {
       setSaving(false)
@@ -38,6 +49,8 @@ export default function ExpensesTab({ expenses, onAdd, onDelete, year, month }) 
     setDeleting(id)
     try { await onDelete(id) } finally { setDeleting(null) }
   }
+
+  const cardMap = Object.fromEntries(cards.map(c => [c.id, c]))
 
   // Group entries by day, in calendar order (1st, 2nd, 3rd, …).
   const byDay = {}
@@ -51,7 +64,7 @@ export default function ExpensesTab({ expenses, onAdd, onDelete, year, month }) 
         <div className="flex items-center justify-between mb-1">
           <div className="flex items-center gap-2 opacity-80">
             <ShoppingCart size={16} />
-            <span className="text-sm font-medium">Total Expenses this month</span>
+            <span className="text-sm font-medium">Total Spend this month</span>
           </div>
           <button
             onClick={() => setShowTotal(v => !v)}
@@ -61,8 +74,30 @@ export default function ExpensesTab({ expenses, onAdd, onDelete, year, month }) 
             {showTotal ? <EyeOff size={16} /> : <Eye size={16} />}
           </button>
         </div>
-        <MaskedAmount value={total} show={showTotal} className="text-4xl font-black tracking-tight block" />
-        <p className="text-xs opacity-70 mt-1">{expenses.length} {expenses.length === 1 ? 'entry' : 'entries'} across {groupedDays.length} of {days} days</p>
+        <MaskedAmount value={nonCreditTotal + creditTotal} show={showTotal} className="text-4xl font-black tracking-tight block" />
+
+        <div className="flex items-center gap-3 mt-3 pt-3 border-t border-white/20">
+          <div className="flex items-center gap-2 flex-1 min-w-0">
+            <div className="w-8 h-8 rounded-lg bg-white/15 flex items-center justify-center flex-shrink-0">
+              <Wallet size={14} />
+            </div>
+            <div className="min-w-0">
+              <p className="text-[10px] opacity-70 leading-tight truncate">Non-Credit</p>
+              <MaskedAmount value={nonCreditTotal} show={showTotal} className="text-sm font-bold block" />
+            </div>
+          </div>
+          <div className="flex items-center gap-2 flex-1 min-w-0">
+            <div className="w-8 h-8 rounded-lg bg-white/15 flex items-center justify-center flex-shrink-0">
+              <CreditCard size={14} />
+            </div>
+            <div className="min-w-0">
+              <p className="text-[10px] opacity-70 leading-tight truncate">Credit (not yet due)</p>
+              <MaskedAmount value={creditTotal} show={showTotal} className="text-sm font-bold block" />
+            </div>
+          </div>
+        </div>
+
+        <p className="text-xs opacity-70 mt-3">{expenses.length} {expenses.length === 1 ? 'entry' : 'entries'} across {groupedDays.length} of {days} days</p>
       </div>
 
       {/* Add form */}
@@ -117,6 +152,45 @@ export default function ExpensesTab({ expenses, onAdd, onDelete, year, month }) 
           </div>
         </div>
 
+        {/* Payment method picker */}
+        <div className="grid grid-cols-5 gap-1.5">
+          {PAYMENT_METHODS.map(m => {
+            const Icon = m.icon
+            const active = paymentMethod === m.id
+            return (
+              <button
+                key={m.id}
+                onClick={() => handleSelectMethod(m.id)}
+                className={`flex flex-col items-center gap-1 py-2 rounded-xl border text-center transition-colors ${
+                  active ? 'border-red-400 bg-white ring-2 ring-red-200' : 'border-red-100 bg-white/60 hover:bg-white'
+                }`}
+              >
+                <Icon size={15} className={active ? 'text-red-500' : 'text-gray-400'} />
+                <span className="text-[9px] font-semibold text-gray-600 leading-tight px-0.5">{m.label}</span>
+              </button>
+            )
+          })}
+        </div>
+
+        {needsCard && (
+          cards.length === 0 ? (
+            <p className="text-xs text-amber-600 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2">
+              Add a credit card in the Credit Card tab first.
+            </p>
+          ) : (
+            <select
+              value={cardId}
+              onChange={e => setCardId(e.target.value)}
+              className="w-full px-3 py-3 rounded-xl border border-red-200 focus:border-red-400 outline-none text-gray-800 bg-white text-sm"
+            >
+              <option value="">Select card…</option>
+              {cards.map(c => (
+                <option key={c.id} value={c.id}>{c.bank} — {c.cardName}{c.nickname ? ` (${c.nickname})` : ''}</option>
+              ))}
+            </select>
+          )
+        )}
+
         <div className="flex gap-2">
           <input
             type="text"
@@ -128,7 +202,7 @@ export default function ExpensesTab({ expenses, onAdd, onDelete, year, month }) 
           />
           <button
             onClick={handleAdd}
-            disabled={!category || !amount || saving}
+            disabled={!category || !amount || (needsCard && !cardId) || saving}
             className="px-6 py-3 bg-red-500 text-white rounded-xl font-bold hover:bg-red-600 disabled:opacity-40 transition-colors text-sm flex items-center gap-2"
           >
             {saving ? <Loader2 size={16} className="animate-spin" /> : null}
@@ -159,6 +233,9 @@ export default function ExpensesTab({ expenses, onAdd, onDelete, year, month }) 
                   {byDay[d].map(entry => {
                     const cat  = getCategory(entry.category)
                     const Icon = cat.icon
+                    const method = getPaymentMethod(entry.paymentMethod)
+                    const MethodIcon = method.icon
+                    const card = entry.cardId ? cardMap[entry.cardId] : null
                     return (
                       <div key={entry.id} className="flex items-center gap-3 px-4 py-3 hover:bg-red-50 transition-colors group">
                         <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${cat.bg}`}>
@@ -166,7 +243,12 @@ export default function ExpensesTab({ expenses, onAdd, onDelete, year, month }) 
                         </div>
                         <div className="flex-1 min-w-0">
                           <p className="font-semibold text-gray-800 text-sm truncate">{cat.label}</p>
-                          {entry.remark && <p className="text-xs text-gray-400 truncate">{entry.remark}</p>}
+                          <p className="text-xs text-gray-400 truncate flex items-center gap-1">
+                            {(entry.paymentMethod && entry.paymentMethod !== 'cash') && (
+                              <span className="inline-flex items-center gap-0.5 text-gray-400"><MethodIcon size={11} />{method.label}{card ? ` · ${card.nickname || card.cardName}` : ''}</span>
+                            )}
+                            {entry.remark && <span className="truncate">{entry.remark}</span>}
+                          </p>
                         </div>
                         <span className="font-black text-gray-800 whitespace-nowrap">₹{Number(entry.amount).toLocaleString('en-IN')}</span>
                         <button

@@ -1,17 +1,22 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
   ChevronLeft, ChevronRight, LogOut, Loader2, Eye, EyeOff, Menu,
-  TrendingUp, ShoppingCart, PiggyBank, LayoutGrid, Calculator,
+  TrendingUp, ShoppingCart, PiggyBank, LayoutGrid, Calculator, CreditCard, Repeat,
 } from 'lucide-react'
 import EarnTab        from './tabs/EarnTab'
 import ExpensesTab    from './tabs/ExpensesTab'
 import AchievementTab from './tabs/AchievementTab'
 import CategoriesTab  from './tabs/CategoriesTab'
 import CalculateTab   from './tabs/CalculateTab'
+import CreditCardTab  from './tabs/CreditCardTab'
+import EmiTab         from './tabs/EmiTab'
 import {
   getData, addEarning, deleteEarning,
   addExpense, deleteExpense, addAchievement, deleteAchievement,
+  getCards, addCard, updateCard, deleteCard, markCardPaid,
+  getEmis, addEmi, deleteEmi, confirmEmiDiscount,
 } from '../utils/api'
+import { cashBasisTotal } from '../utils/expenseTotals'
 import MaskedAmount from './MaskedAmount'
 import NavDrawer from './NavDrawer'
 import ChartSkeleton from './ChartSkeleton'
@@ -21,6 +26,8 @@ const MONTH_NAMES = ['January','February','March','April','May','June','July','A
 const TABS = [
   { id: 'Earn',        icon: TrendingUp,   color: 'text-green-600 border-green-500 bg-green-50'   },
   { id: 'Expenses',    icon: ShoppingCart, color: 'text-red-600 border-red-500 bg-red-50'         },
+  { id: 'CreditCard',  icon: CreditCard,   color: 'text-sky-600 border-sky-500 bg-sky-50', label: 'Credit Cards', monthScoped: false },
+  { id: 'Emi',         icon: Repeat,       color: 'text-cyan-600 border-cyan-500 bg-cyan-50', label: 'EMI', monthScoped: false },
   { id: 'Achievement', icon: PiggyBank,    color: 'text-amber-600 border-amber-500 bg-amber-50'   },
   { id: 'Categories',  icon: LayoutGrid,   color: 'text-purple-600 border-purple-500 bg-purple-50'},
   { id: 'Calculate',   icon: Calculator,   color: 'text-indigo-600 border-indigo-500 bg-indigo-50'},
@@ -47,6 +54,8 @@ export default function Dashboard({ user, onLogout }) {
   const [error, setError]     = useState(null)
   const [showAmounts, setShowAmounts] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
+  const [cards, setCards]     = useState([])
+  const [emis, setEmis]       = useState([])
 
   const gradient = COLOR_POOL[(user?.color_index ?? 0) % COLOR_POOL.length]
 
@@ -63,6 +72,12 @@ export default function Dashboard({ user, onLogout }) {
   }, [year, month])
 
   useEffect(() => { loadData() }, [loadData])
+
+  // Cards and EMI plans aren't month-scoped, so they're fetched once rather than on every navigateMonth().
+  useEffect(() => {
+    getCards().then(setCards).catch(() => {})
+    getEmis().then(setEmis).catch(() => {})
+  }, [])
 
   const navigateMonth = (dir) => {
     let m = month + dir, y = year
@@ -82,13 +97,54 @@ export default function Dashboard({ user, onLogout }) {
   }
 
   // ── Expense mutations ─────────────────────────────────────
-  const handleAddExpense = async (day, category, amount, remark) => {
-    const entry = await addExpense(year, month + 1, day, category, amount, remark)
+  const handleAddExpense = async (day, category, amount, remark, paymentMethod, cardId) => {
+    const entry = await addExpense(year, month + 1, day, category, amount, remark, paymentMethod, cardId)
     setData(d => ({ ...d, expenses: [...d.expenses, entry] }))
   }
   const handleDeleteExpense = async (id) => {
     await deleteExpense(id)
     setData(d => ({ ...d, expenses: d.expenses.filter(e => e.id !== id) }))
+  }
+
+  // ── Credit card mutations ──────────────────────────────────
+  const handleAddCard = async (card) => {
+    const created = await addCard(card)
+    setCards(cs => [...cs, created])
+  }
+  const handleUpdateCard = async (id, patch) => {
+    const updated = await updateCard(id, patch)
+    setCards(cs => cs.map(c => c.id === id ? updated : c))
+  }
+  const handleDeleteCard = async (id) => {
+    await deleteCard(id)
+    setCards(cs => cs.filter(c => c.id !== id))
+  }
+  // Confirming a payment creates a real expense row (dated on the payment
+  // date) — refetch the current month so it shows up immediately if relevant.
+  const handleConfirmCardPayment = async (cardId, payment) => {
+    const result = await markCardPaid(cardId, payment)
+    await loadData()
+    return result.payment
+  }
+
+  // ── EMI mutations ───────────────────────────────────────────
+  // Creating/deleting an EMI plan generates or removes expense rows across
+  // many months at once, so the simplest correct thing is to refetch both
+  // the EMI list and whatever month is currently on screen.
+  const handleAddEmi = async (plan) => {
+    await addEmi(plan)
+    const [freshEmis] = await Promise.all([getEmis(), loadData()])
+    setEmis(freshEmis)
+  }
+  const handleDeleteEmi = async (id) => {
+    await deleteEmi(id)
+    const [freshEmis] = await Promise.all([getEmis(), loadData()])
+    setEmis(freshEmis)
+  }
+  const handleConfirmEmiDiscount = async (id, date) => {
+    await confirmEmiDiscount(id, date)
+    const [freshEmis] = await Promise.all([getEmis(), loadData()])
+    setEmis(freshEmis)
   }
 
   // ── Achievement mutations ─────────────────────────────────
@@ -102,7 +158,7 @@ export default function Dashboard({ user, onLogout }) {
   }
 
   const totalEarn         = data.earn.reduce((s, e) => s + Number(e.amount || 0), 0)
-  const totalExpenses     = data.expenses.reduce((s, e) => s + Number(e.amount || 0), 0)
+  const totalExpenses     = cashBasisTotal(data.expenses)
   const totalAchievement  = data.achievements.reduce((s, a) => s + Number(a.amount || 0), 0)
 
   return (
@@ -147,19 +203,21 @@ export default function Dashboard({ user, onLogout }) {
       </div>
 
       <div className="max-w-2xl mx-auto px-4 pt-5">
-        {/* Month navigator */}
-        <div className="bg-white rounded-2xl shadow-md px-4 py-3 flex items-center justify-between mb-4">
-          <button onClick={() => navigateMonth(-1)} className="p-2 rounded-xl hover:bg-gray-100 transition-colors">
-            <ChevronLeft size={22} className="text-gray-500" />
-          </button>
-          <div className="text-center">
-            <p className="text-2xl font-black text-gray-800">{MONTH_NAMES[month]}</p>
-            <p className="text-sm text-gray-400 font-medium">{year}</p>
+        {/* Month navigator — hidden for tabs that aren't scoped to a calendar month */}
+        {TABS.find(t => t.id === activeTab)?.monthScoped !== false && (
+          <div className="bg-white rounded-2xl shadow-md px-4 py-3 flex items-center justify-between mb-4">
+            <button onClick={() => navigateMonth(-1)} className="p-2 rounded-xl hover:bg-gray-100 transition-colors">
+              <ChevronLeft size={22} className="text-gray-500" />
+            </button>
+            <div className="text-center">
+              <p className="text-2xl font-black text-gray-800">{MONTH_NAMES[month]}</p>
+              <p className="text-sm text-gray-400 font-medium">{year}</p>
+            </div>
+            <button onClick={() => navigateMonth(1)} className="p-2 rounded-xl hover:bg-gray-100 transition-colors">
+              <ChevronRight size={22} className="text-gray-500" />
+            </button>
           </div>
-          <button onClick={() => navigateMonth(1)} className="p-2 rounded-xl hover:bg-gray-100 transition-colors">
-            <ChevronRight size={22} className="text-gray-500" />
-          </button>
-        </div>
+        )}
 
         {/* Section nav */}
         <div className="bg-white rounded-2xl shadow-md overflow-hidden">
@@ -171,7 +229,7 @@ export default function Dashboard({ user, onLogout }) {
             >
               <Menu size={20} className="text-gray-500" />
             </button>
-            <span className="font-black text-gray-800">{activeTab}</span>
+            <span className="font-black text-gray-800">{TABS.find(t => t.id === activeTab)?.label || activeTab}</span>
           </div>
 
           <NavDrawer
@@ -200,7 +258,9 @@ export default function Dashboard({ user, onLogout }) {
             ) : (
               <>
                 {activeTab === 'Earn'        && <EarnTab        earn={data.earn}         onAdd={handleAddEarning}        onDelete={handleDeleteEarning} />}
-                {activeTab === 'Expenses'    && <ExpensesTab    expenses={data.expenses} onAdd={handleAddExpense}        onDelete={handleDeleteExpense} year={year} month={month} />}
+                {activeTab === 'Expenses'    && <ExpensesTab    expenses={data.expenses} onAdd={handleAddExpense}        onDelete={handleDeleteExpense} year={year} month={month} cards={cards} />}
+                {activeTab === 'CreditCard'  && <CreditCardTab  cards={cards} onAdd={handleAddCard} onUpdate={handleUpdateCard} onDelete={handleDeleteCard} onConfirmPayment={handleConfirmCardPayment} />}
+                {activeTab === 'Emi'         && <EmiTab         emis={emis} cards={cards} onAdd={handleAddEmi} onDelete={handleDeleteEmi} onConfirmDiscount={handleConfirmEmiDiscount} />}
                 {activeTab === 'Achievement' && <AchievementTab achievements={data.achievements} onAdd={handleAddAchievement} onDelete={handleDeleteAchievement} />}
                 {activeTab === 'Categories'  && <CategoriesTab  expenses={data.expenses} />}
                 {activeTab === 'Calculate'   && <CalculateTab   data={data} year={year} month={month} />}

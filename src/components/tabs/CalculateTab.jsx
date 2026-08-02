@@ -5,6 +5,7 @@ import {
   PiggyBank, Wallet, CheckCircle2, AlertCircle, ChevronRight,
 } from 'lucide-react'
 import DonutChart from '../DonutChart'
+import { cashBasisTotal, creditSpendTotal } from '../../utils/expenseTotals'
 
 const MONTH_NAMES = [
   'January','February','March','April','May','June',
@@ -27,7 +28,11 @@ export default function CalculateTab({ data, year, month }) {
   const toggleActive = (key) => setActiveKey(k => (k === key ? null : key))
 
   const totalEarn = data.earn.reduce((s, e) => s + Number(e.amount || 0), 0)
-  const totalExpenses = data.expenses.reduce((s, e) => s + Number(e.amount || 0), 0)
+  // Cash-basis: a credit-card purchase doesn't reduce available cash until the
+  // bill is actually paid, so "Expenses" here excludes still-unpaid credit spend.
+  const totalExpenses = cashBasisTotal(data.expenses)
+  const creditSpend = creditSpendTotal(data.expenses)
+  const cardBillPayments = data.expenses.filter(e => e.category === 'card_payment').reduce((s, e) => s + Number(e.amount || 0), 0)
   const totalAchievement = data.achievements.reduce((s, a) => s + Number(a.amount || 0), 0)
 
   const salaryEntry = data.earn.find(
@@ -118,6 +123,17 @@ export default function CalculateTab({ data, year, month }) {
           <p className="text-xs text-gray-300 mt-0.5">Earn − Expenses − Achievement</p>
         </motion.div>
       </motion.div>
+
+      {(creditSpend > 0 || cardBillPayments > 0) && (
+        <div className="text-xs text-gray-400 bg-gray-50 border border-gray-100 rounded-xl px-3 py-2 text-center space-y-1">
+          {creditSpend > 0 && (
+            <p>+ ₹{creditSpend.toLocaleString('en-IN')} on credit this month, not yet due — excluded above until the bill's paid</p>
+          )}
+          {cardBillPayments > 0 && (
+            <p>Includes ₹{cardBillPayments.toLocaleString('en-IN')} in credit card bill payments this month</p>
+          )}
+        </div>
+      )}
 
       {/* Calculate button */}
       <button

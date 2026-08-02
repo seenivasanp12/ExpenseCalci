@@ -57,8 +57,8 @@ export const addEarning = (year, month, description, amount, isSalary) =>
 
 export const deleteEarning = (id) => authReq('DELETE', `/api/data/earn/${id}`)
 
-export const addExpense = (year, month, day, category, amount, remark) =>
-  authReq('POST', '/api/data/expense', { year, month, day, category, amount, remark })
+export const addExpense = (year, month, day, category, amount, remark, paymentMethod, cardId) =>
+  authReq('POST', '/api/data/expense', { year, month, day, category, amount, remark, paymentMethod, cardId })
 
 export const deleteExpense = (id) => authReq('DELETE', `/api/data/expense/${id}`)
 
@@ -69,3 +69,30 @@ export const deleteAchievement = (id) => authReq('DELETE', `/api/data/achievemen
 
 // ── Admin: all users + their data for a month ───────────────────────────────
 export const getAdminData = (year, month) => adminReq('GET', `/api/data/admin/${year}/${month}`)
+
+// ── Credit cards (member JWT required) ──────────────────────────────────────
+export const getCards = () => authReq('GET', '/api/cards')
+
+export const addCard = (card) => authReq('POST', '/api/cards', card)
+
+export const updateCard = (id, card) => authReq('PUT', `/api/cards/${id}`, card)
+
+export const deleteCard = (id) => authReq('DELETE', `/api/cards/${id}`)
+
+export const getCardExpenses = (id) => authReq('GET', `/api/cards/${id}/expenses`)
+
+export const getCardPayments = (id) => authReq('GET', `/api/cards/${id}/payments`)
+
+export const markCardPaid = (id, payment) => authReq('POST', `/api/cards/${id}/payments`, payment)
+
+// ── EMI plans (member JWT required) ─────────────────────────────────────────
+export const getEmis = () => authReq('GET', '/api/emi')
+
+export const previewEmi = (plan) => authReq('POST', '/api/emi/preview', plan)
+
+export const addEmi = (plan) => authReq('POST', '/api/emi', plan)
+
+export const deleteEmi = (id) => authReq('DELETE', `/api/emi/${id}`)
+
+export const confirmEmiDiscount = (id, { day, month, year, amount }) =>
+  authReq('POST', `/api/emi/${id}/confirm-discount`, { day, month, year, amount })
