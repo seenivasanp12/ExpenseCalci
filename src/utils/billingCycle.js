@@ -2,23 +2,21 @@
 // `month` is 0-indexed (JS Date convention), matching the rest of the app.
 
 // Which statement period an expense made on `day` (of `year`/`month`) falls into.
-// A cycle runs from statementDay of one month through statementDay-1 of the
-// next, so a purchase strictly before statementDay lands in this month's
-// statement, and one on-or-after it starts the next cycle instead.
-export const getStatementPeriod = (statementDay, year, month, day) => {
-  if (day < statementDay) return { year, month }
-  return month === 11 ? { year: year + 1, month: 0 } : { year, month: month + 1 }
-}
+// Cycles are pure calendar months — every expense made in a given month lands
+// on that month's statement, regardless of the exact statement day. The
+// statement/due day only affect *when* that statement is generated and due
+// (see getDueDate), not which transactions belong to it.
+export const getStatementPeriod = (statementDay, year, month, day) => ({ year, month })
 
-// The due date's (year, month) for a statement that closes on `statementDay`
-// of (statementYear, statementMonth). Due dates always fall after the
-// statement date, so if dueDay <= statementDay the due date must roll into
-// the following month.
-export const getDueDate = (statementDay, dueDay, statementYear, statementMonth) => {
-  if (dueDay > statementDay) return { year: statementYear, month: statementMonth }
-  return statementMonth === 11
-    ? { year: statementYear + 1, month: 0 }
-    : { year: statementYear, month: statementMonth + 1 }
+const addMonth = (year, month) => (month === 11 ? { year: year + 1, month: 0 } : { year, month: month + 1 })
+
+// The due date's (year, month) for a statement covering (periodYear, periodMonth)
+// of spending. The statement itself is generated the following month, on
+// `statementDay`; the due date falls in that same month if dueDay comes after
+// statementDay, otherwise it rolls one month further.
+export const getDueDate = (statementDay, dueDay, periodYear, periodMonth) => {
+  const generated = addMonth(periodYear, periodMonth)
+  return dueDay > statementDay ? generated : addMonth(generated.year, generated.month)
 }
 
 const cycleKey = (p) => `${p.year}-${p.month}`
