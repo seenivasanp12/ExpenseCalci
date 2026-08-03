@@ -21,7 +21,7 @@ const toCard = (c) => ({
   cycleChangedAt: c.cycle_changed_at,
 })
 
-const isValidDay = (d) => Number.isInteger(d) && d >= 1 && d <= 28
+const isValidDay = (d) => Number.isInteger(d) && d >= 1 && d <= 31
 
 // Banks only let you change the billing-cycle date once every ~180 days —
 // null means it's never been changed, so the first change is always allowed.

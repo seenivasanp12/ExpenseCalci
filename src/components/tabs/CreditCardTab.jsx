@@ -101,8 +101,8 @@ export default function CreditCardTab({ cards, onAdd, onUpdate, onDelete, onConf
   const statementDayNum = Number(form.statementDay)
   const dueDayNum       = Number(form.dueDay)
   const canSubmit = bankName && cardName && form.creditLimit
-    && statementDayNum >= 1 && statementDayNum <= 28
-    && dueDayNum >= 1 && dueDayNum <= 28
+    && statementDayNum >= 1 && statementDayNum <= 31
+    && dueDayNum >= 1 && dueDayNum <= 31
 
   const locked = editingCard ? cycleLockedUntil(editingCard) : null
   const cycleLocked = locked && new Date() < locked
@@ -217,8 +217,6 @@ export default function CreditCardTab({ cards, onAdd, onUpdate, onDelete, onConf
             const currentCycle = cardCycles.find(c => `${c.year}-${c.month}` === curKey)
             const usedThisCycle = currentCycle?.total || 0
             const limit = Number(card.creditLimit) || 0
-            const utilizationPct = limit > 0 ? Math.min(100, (usedThisCycle / limit) * 100) : 0
-            const barColor = utilizationPct < 50 ? 'bg-emerald-500' : utilizationPct < 80 ? 'bg-amber-500' : 'bg-red-500'
 
             // Only cycles strictly BEFORE the current open one are actually
             // billed/closed — a card can have future cycles already in
@@ -240,6 +238,15 @@ export default function CreditCardTab({ cards, onAdd, onUpdate, onDelete, onConf
             // closedCycles is sorted newest-first, so the oldest unpaid one
             // (what a single "Pay Now" tap should default to) is the last entry.
             const oldestUnpaid = unpaidCycles.length ? unpaidCycles[unpaidCycles.length - 1] : null
+
+            // What you actually owe the bank right now = any unpaid past
+            // statement(s) plus whatever's accumulated in the still-open
+            // cycle — not just the current cycle alone. Paying off the
+            // outstanding balance drops totalOutstanding back to 0, so this
+            // automatically falls back to just the current cycle's spend.
+            const totalUtilized = totalOutstanding + usedThisCycle
+            const utilizationPct = limit > 0 ? Math.min(100, (totalUtilized / limit) * 100) : 0
+            const barColor = utilizationPct < 50 ? 'bg-emerald-500' : utilizationPct < 80 ? 'bg-amber-500' : 'bg-red-500'
 
             const lastClosedCycle = closedCycles[0] || null
             const annualCycles = cardCycles.filter(c => c.year === now.getFullYear()).slice().sort((a, b) => a.month - b.month)
@@ -283,7 +290,7 @@ export default function CreditCardTab({ cards, onAdd, onUpdate, onDelete, onConf
                 {/* Always-visible utilization bar */}
                 <div className="px-4 pb-3 bg-white">
                   <div className="flex items-center justify-between text-[11px] text-gray-400 mb-1">
-                    <span>₹{usedThisCycle.toLocaleString('en-IN')} used</span>
+                    <span>₹{totalUtilized.toLocaleString('en-IN')} used</span>
                     <span>of ₹{limit.toLocaleString('en-IN')} limit</span>
                   </div>
                   <div className="h-2 rounded-full bg-gray-100 overflow-hidden">
@@ -592,7 +599,7 @@ export default function CreditCardTab({ cards, onAdd, onUpdate, onDelete, onConf
                 Statement day {cycleLocked && <Lock size={10} className="text-gray-300" />}
               </label>
               <input
-                type="number" min="1" max="28" value={form.statementDay} onChange={set('statementDay')}
+                type="number" min="1" max="31" value={form.statementDay} onChange={set('statementDay')}
                 disabled={cycleLocked}
                 className="w-full px-3 py-3 rounded-xl border border-sky-200 focus:border-sky-400 outline-none text-gray-800 bg-white text-sm disabled:bg-gray-100 disabled:text-gray-400"
               />
@@ -602,7 +609,7 @@ export default function CreditCardTab({ cards, onAdd, onUpdate, onDelete, onConf
                 Due day {cycleLocked && <Lock size={10} className="text-gray-300" />}
               </label>
               <input
-                type="number" min="1" max="28" value={form.dueDay} onChange={set('dueDay')}
+                type="number" min="1" max="31" value={form.dueDay} onChange={set('dueDay')}
                 disabled={cycleLocked}
                 className="w-full px-3 py-3 rounded-xl border border-sky-200 focus:border-sky-400 outline-none text-gray-800 bg-white text-sm disabled:bg-gray-100 disabled:text-gray-400"
               />
