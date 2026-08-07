@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { CreditCard, Plus, Trash2, Pencil, Loader2, ChevronDown, ChevronUp, Wallet, Lock } from 'lucide-react'
+import { CreditCard, Plus, Trash2, Pencil, Loader2, ChevronDown, ChevronUp, Wallet, Lock, AlertTriangle } from 'lucide-react'
 import { BANK_PRESETS, getBank, getCardPreset } from '../../utils/cardPresets'
 import { groupByBillingCycle, getStatementPeriod } from '../../utils/billingCycle'
 import { getCardExpenses, getCardPayments } from '../../utils/api'
@@ -12,6 +12,9 @@ const VIEW_MODES = ['current', 'lastMonth', 'annual', 'custom']
 const VIEW_LABELS = { current: 'Current', lastMonth: 'Last Month', annual: 'Annual', custom: 'Custom' }
 // Paying a card bill with the same/another credit card isn't a supported case.
 const PAYMENT_METHOD_OPTIONS = PAYMENT_METHODS.filter(m => m.id !== 'credit_card')
+// Threshold for a "nearing limit" alert — matches the point the utilization
+// bar itself turns red, so the banner and the always-visible bar agree.
+const NEAR_LIMIT_PCT = 80
 
 const emptyForm = {
   bankId: '', customBank: '', cardPresetId: '', customCardName: '', nickname: '',
@@ -30,6 +33,51 @@ const cycleLockedUntil = (card) => {
   const next = new Date(card.cycleChangedAt)
   next.setDate(next.getDate() + 180)
   return next
+}
+
+// Single source of truth for "how much of this card's limit is used up and
+// what's overdue" — shared by the always-visible per-card header and the
+// alert banner, so the two can never disagree about the same numbers.
+const getCardOverview = (card, cardCycles, cardPayments, now) => {
+  const limit = Number(card.creditLimit) || 0
+  const curPeriod = getStatementPeriod(card.statementDay, now.getFullYear(), now.getMonth(), now.getDate())
+  const curKey = `${curPeriod.year}-${curPeriod.month}`
+  const currentCycle = cardCycles.find(c => `${c.year}-${c.month}` === curKey)
+  const usedThisCycle = currentCycle?.total || 0
+
+  // Only cycles strictly BEFORE the current open one are actually
+  // billed/closed — a card can have future cycles already in cardCycles
+  // (e.g. pre-generated EMI installments), and those aren't due yet, so
+  // they must never count as outstanding.
+  const curOrdinal = curPeriod.year * 12 + curPeriod.month
+  const closedCycles = cardCycles.filter(c => (c.year * 12 + c.month) < curOrdinal)
+  const paidSoFar = (cyc) => cardPayments
+    .filter(p => p.statementYear === cyc.year && p.statementMonth === cyc.month + 1)
+    .reduce((s, p) => s + Number(p.amountPaid || 0), 0)
+  const remainingDue = (cyc) => Math.max(0, cyc.total - paidSoFar(cyc))
+  const unpaidCycles = closedCycles.filter(c => remainingDue(c) > 0)
+  const totalOutstanding = unpaidCycles.reduce((s, c) => s + remainingDue(c), 0)
+  const dueDateValue = (c) => new Date(c.dueYear, c.dueMonth, card.dueDay)
+  const nearestDue = unpaidCycles.length
+    ? unpaidCycles.reduce((min, c) => dueDateValue(c) < dueDateValue(min) ? c : min)
+    : null
+  // closedCycles is sorted newest-first, so the oldest unpaid one (what a
+  // single "Pay Now" tap should default to) is the last entry.
+  const oldestUnpaid = unpaidCycles.length ? unpaidCycles[unpaidCycles.length - 1] : null
+
+  // What you actually owe the bank right now = any unpaid past statement(s)
+  // plus whatever's accumulated in the still-open cycle — not just the
+  // current cycle alone. Paying off the outstanding balance drops
+  // totalOutstanding back to 0, so this automatically falls back to just
+  // the current cycle's spend.
+  const totalUtilized = totalOutstanding + usedThisCycle
+  const utilizationPct = limit > 0 ? Math.min(100, (totalUtilized / limit) * 100) : 0
+
+  return {
+    limit, currentCycle, closedCycles, paidSoFar, remainingDue, unpaidCycles,
+    totalOutstanding, nearestDue, oldestUnpaid, totalUtilized, utilizationPct,
+    nearestDueDate: nearestDue ? dueDateValue(nearestDue) : null,
+  }
 }
 
 export default function CreditCardTab({ cards, onAdd, onUpdate, onDelete, onConfirmPayment }) {
@@ -186,6 +234,29 @@ export default function CreditCardTab({ cards, onAdd, onUpdate, onDelete, onConf
 
   const totalLimit = cards.reduce((s, c) => s + Number(c.creditLimit || 0), 0)
   const now = new Date()
+  // Midnight today — a statement due *today* isn't overdue yet, only one
+  // whose due date has fully passed is, so compare at day granularity.
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+
+  // One alert per card, overdue taking priority over a near-limit warning —
+  // reuses getCardOverview so these numbers always match what each card's
+  // own header shows below.
+  const cardAlerts = loadingData ? [] : cards.map(card => {
+    const overview = getCardOverview(card, cyclesByCard[card.id] || [], paymentsByCard[card.id] || [], now)
+    if (overview.nearestDueDate && overview.nearestDueDate < today) {
+      return {
+        id: card.id, card, type: 'overdue',
+        message: `₹${overview.totalOutstanding.toLocaleString('en-IN')} overdue since ${MONTH_SHORT[overview.nearestDueDate.getMonth()]} ${overview.nearestDueDate.getDate()}, ${overview.nearestDueDate.getFullYear()}`,
+      }
+    }
+    if (overview.utilizationPct >= NEAR_LIMIT_PCT) {
+      return {
+        id: card.id, card, type: 'nearLimit',
+        message: `${Math.round(overview.utilizationPct)}% of limit used — ₹${overview.totalUtilized.toLocaleString('en-IN')} of ₹${overview.limit.toLocaleString('en-IN')}`,
+      }
+    }
+    return null
+  }).filter(Boolean)
 
   return (
     <div className="space-y-4">
@@ -199,6 +270,26 @@ export default function CreditCardTab({ cards, onAdd, onUpdate, onDelete, onConf
         <p className="text-xs opacity-70 mt-1">{cards.length} {cards.length === 1 ? 'card' : 'cards'}</p>
       </div>
 
+      {/* Alerts — overdue payments and cards nearing their limit */}
+      {cardAlerts.length > 0 && (
+        <div className="space-y-2">
+          {cardAlerts.map(a => (
+            <div
+              key={a.id}
+              className={`rounded-2xl p-3 border flex items-start gap-2.5 ${a.type === 'overdue' ? 'bg-red-50 border-red-100' : 'bg-amber-50 border-amber-100'}`}
+            >
+              <AlertTriangle size={16} className={`mt-0.5 flex-shrink-0 ${a.type === 'overdue' ? 'text-red-500' : 'text-amber-500'}`} />
+              <div className="min-w-0">
+                <p className={`text-xs font-bold truncate ${a.type === 'overdue' ? 'text-red-700' : 'text-amber-700'}`}>
+                  {a.card.bank} — {a.card.cardName}
+                </p>
+                <p className={`text-[11px] ${a.type === 'overdue' ? 'text-red-600' : 'text-amber-600'}`}>{a.message}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* Card list */}
       {cards.length === 0 ? (
         <div className="text-center py-10 text-gray-300">
@@ -211,42 +302,13 @@ export default function CreditCardTab({ cards, onAdd, onUpdate, onDelete, onConf
         <div className="space-y-3">
           {cards.map(card => {
             const expanded = expandedId === card.id
-            const curPeriod = getStatementPeriod(card.statementDay, now.getFullYear(), now.getMonth(), now.getDate())
-            const curKey = `${curPeriod.year}-${curPeriod.month}`
             const cardCycles = cyclesByCard[card.id] || []
-            const currentCycle = cardCycles.find(c => `${c.year}-${c.month}` === curKey)
-            const usedThisCycle = currentCycle?.total || 0
-            const limit = Number(card.creditLimit) || 0
-
-            // Only cycles strictly BEFORE the current open one are actually
-            // billed/closed — a card can have future cycles already in
-            // cardCycles (e.g. pre-generated EMI installments), and those
-            // aren't due yet, so they must never count as outstanding.
-            const curOrdinal = curPeriod.year * 12 + curPeriod.month
-            const closedCycles = cardCycles.filter(c => (c.year * 12 + c.month) < curOrdinal)
-            const cardPayments = paymentsByCard[card.id] || []
-            const paidSoFar = (cyc) => cardPayments
-              .filter(p => p.statementYear === cyc.year && p.statementMonth === cyc.month + 1)
-              .reduce((s, p) => s + Number(p.amountPaid || 0), 0)
-            const remainingDue = (cyc) => Math.max(0, cyc.total - paidSoFar(cyc))
-            const unpaidCycles = closedCycles.filter(c => remainingDue(c) > 0)
-            const totalOutstanding = unpaidCycles.reduce((s, c) => s + remainingDue(c), 0)
-            const dueDateValue = (c) => new Date(c.dueYear, c.dueMonth, card.dueDay)
-            const nearestDue = unpaidCycles.length
-              ? unpaidCycles.reduce((min, c) => dueDateValue(c) < dueDateValue(min) ? c : min)
-              : null
-            // closedCycles is sorted newest-first, so the oldest unpaid one
-            // (what a single "Pay Now" tap should default to) is the last entry.
-            const oldestUnpaid = unpaidCycles.length ? unpaidCycles[unpaidCycles.length - 1] : null
-
-            // What you actually owe the bank right now = any unpaid past
-            // statement(s) plus whatever's accumulated in the still-open
-            // cycle — not just the current cycle alone. Paying off the
-            // outstanding balance drops totalOutstanding back to 0, so this
-            // automatically falls back to just the current cycle's spend.
-            const totalUtilized = totalOutstanding + usedThisCycle
-            const utilizationPct = limit > 0 ? Math.min(100, (totalUtilized / limit) * 100) : 0
-            const barColor = utilizationPct < 50 ? 'bg-emerald-500' : utilizationPct < 80 ? 'bg-amber-500' : 'bg-red-500'
+            const overview = getCardOverview(card, cardCycles, paymentsByCard[card.id] || [], now)
+            const {
+              currentCycle, limit, closedCycles, paidSoFar, remainingDue,
+              unpaidCycles, totalOutstanding, nearestDue, oldestUnpaid, totalUtilized, utilizationPct,
+            } = overview
+            const barColor = utilizationPct < 50 ? 'bg-emerald-500' : utilizationPct < NEAR_LIMIT_PCT ? 'bg-amber-500' : 'bg-red-500'
 
             const lastClosedCycle = closedCycles[0] || null
             const annualCycles = cardCycles.filter(c => c.year === now.getFullYear()).slice().sort((a, b) => a.month - b.month)

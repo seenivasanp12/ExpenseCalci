@@ -9,6 +9,7 @@ import dataRoutes     from './routes/data.js'
 import familiesRoutes from './routes/families.js'
 import cardsRoutes    from './routes/cards.js'
 import emiRoutes      from './routes/emi.js'
+import mutualFundsRoutes from './routes/mutualFunds.js'
 
 const app  = express()
 const PORT = process.env.PORT || 3001
@@ -56,6 +57,7 @@ app.use('/api/data',     dataRoutes)
 app.use('/api/families', familiesRoutes)
 app.use('/api/cards',    cardsRoutes)
 app.use('/api/emi',      emiRoutes)
+app.use('/api/mf',       mutualFundsRoutes)
 
 app.get('/health', (_req, res) => res.json({ ok: true }))
 

@@ -18,7 +18,12 @@
       "Read(//opt/android-studio/**)",
       "Artifact",
       "Bash(./gradlew assembleDebug)",
-      "Bash(adb *)"
+      "Bash(adb *)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git push *)",
+      "Bash(./gradlew assembleRelease)",
+      "Bash(npx eslint *)"
     ]
   }
 }

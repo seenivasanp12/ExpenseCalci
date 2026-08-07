@@ -1,0 +1,404 @@
+import { Router } from 'express'
+import { supabase } from '../db.js'
+import { requireAuth } from '../middleware/auth.js'
+import { addMonths, daysInMonth } from '../utils/emiCalc.js'
+
+const router = Router()
+// Paying INTO a mutual fund with a credit card isn't a supported case —
+// same reasoning as credit_card bill payments (backend/routes/cards.js).
+const PAYMENT_METHOD_IDS = ['cash', 'upi', 'debit_card', 'other']
+
+const mapSip = (s) => ({
+  id: s.id, fundId: s.fund_id, amount: s.amount, sipDay: s.sip_day, paymentMethod: s.payment_method,
+  startDay: s.start_day, startMonth: s.start_month, startYear: s.start_year, status: s.status,
+})
+
+// Every (year, month) an active SIP owes a contribution for, from its start
+// date through today — the current month only counts once its sip_day has
+// actually arrived, so nothing posts early.
+const buildDueMonths = (sip, today) => {
+  const months = []
+  let cursor = { year: sip.start_year, month: sip.start_month }
+  const todayOrdinal = today.year * 12 + today.month
+  while (cursor.year * 12 + cursor.month <= todayOrdinal) {
+    const isCurrentMonth = cursor.year === today.year && cursor.month === today.month
+    if (isCurrentMonth && today.day < sip.sip_day) break
+    months.push({ year: cursor.year, month: cursor.month })
+    cursor = addMonths(cursor.year, cursor.month, 1)
+  }
+  return months
+}
+
+// Catches up every active SIP for this user to the present — this is the
+// only place installments get created, called on every GET /funds (so it
+// runs "silently" whenever the app loads) and once more right after a new
+// SIP is created (so a SIP backdated to a past start date catches up
+// immediately instead of waiting for the next load).
+//
+// Safe to call repeatedly/concurrently: candidate rows are upserted with
+// ignoreDuplicates against the UNIQUE(sip_id, year, month) constraint, so a
+// duplicate pass is always a no-op rather than a double-posted contribution.
+const runBackfill = async (userId) => {
+  const now = new Date()
+  const today = { day: now.getDate(), month: now.getMonth() + 1, year: now.getFullYear() }
+
+  const { data: sips, error: sipErr } = await supabase
+    .from('mf_sips').select('*').eq('user_id', userId).eq('status', 'active')
+  if (sipErr) throw sipErr
+  if (!sips || !sips.length) return
+
+  const sipIds = sips.map(s => s.id)
+  const { data: existing, error: existErr } = await supabase
+    .from('mf_contributions').select('sip_id, year, month').in('sip_id', sipIds)
+  if (existErr) throw existErr
+  const existingKeys = new Set((existing || []).map(c => `${c.sip_id}-${c.year}-${c.month}`))
+
+  const candidateRows = []
+  sips.forEach(sip => {
+    buildDueMonths(sip, today).forEach(({ year, month }) => {
+      if (existingKeys.has(`${sip.id}-${year}-${month}`)) return
+      candidateRows.push({
+        fund_id: sip.fund_id, sip_id: sip.id, contribution_type: 'sip',
+        day: Math.min(sip.sip_day, daysInMonth(year, month)), month, year, amount: sip.amount,
+      })
+    })
+  })
+  if (!candidateRows.length) return
+
+  const { data: inserted, error: insErr } = await supabase
+    .from('mf_contributions')
+    .upsert(candidateRows, { onConflict: 'sip_id,year,month', ignoreDuplicates: true })
+    .select()
+  if (insErr) throw insErr
+  if (!inserted || !inserted.length) return
+
+  const fundIds = [...new Set(sips.map(s => s.fund_id))]
+  const { data: funds, error: fundErr } = await supabase.from('mf_funds').select('id, fund_name').in('id', fundIds)
+  if (fundErr) throw fundErr
+  const fundNameById = Object.fromEntries((funds || []).map(f => [f.id, f.fund_name]))
+  const sipById = Object.fromEntries(sips.map(s => [s.id, s]))
+
+  const expenseRows = inserted.map(c => ({
+    user_id: userId, year: c.year, month: c.month, day: c.day,
+    category: 'mutual_fund', amount: c.amount,
+    remark: `${fundNameById[c.fund_id] || 'Mutual Fund'} — SIP`,
+    payment_method: sipById[c.sip_id].payment_method, mf_contribution_id: c.id,
+  }))
+  const { error: expErr } = await supabase.from('expenses').insert(expenseRows)
+  if (expErr) throw expErr
+
+  // A SIP installment landing on a fund that was closed (fully withdrawn,
+  // see maybeCloseFund below) means money is flowing back in — reopen it.
+  await reactivateFunds([...new Set(inserted.map(c => c.fund_id))])
+}
+
+const reactivateFunds = async (fundIds) => {
+  if (!fundIds.length) return
+  const { error } = await supabase.from('mf_funds').update({ is_active: true }).in('id', fundIds).eq('is_active', false)
+  if (error) throw error
+}
+
+// Real-world lifecycle: once every rupee is pulled back out of a fund and
+// there's no SIP left to feed it again, there's nothing left to track — the
+// fund closes itself instead of sitting in the active list at ₹0 forever.
+// It only reopens automatically when money flows back in (see
+// reactivateFunds above), never by manual toggle.
+const maybeCloseFund = async (fundId) => {
+  const [{ data: contributions }, { data: withdrawals }, { data: activeSip }] = await Promise.all([
+    supabase.from('mf_contributions').select('amount').eq('fund_id', fundId),
+    supabase.from('mf_withdrawals').select('amount').eq('fund_id', fundId),
+    supabase.from('mf_sips').select('id').eq('fund_id', fundId).eq('status', 'active').maybeSingle(),
+  ])
+  const netInvested = (contributions || []).reduce((s, c) => s + Number(c.amount || 0), 0)
+    - (withdrawals || []).reduce((s, w) => s + Number(w.amount || 0), 0)
+  if (netInvested <= 0 && !activeSip) {
+    const { error } = await supabase.from('mf_funds').update({ is_active: false }).eq('id', fundId)
+    if (error) throw error
+  }
+}
+
+router.get('/funds', requireAuth, async (req, res) => {
+  try {
+    await runBackfill(req.user.id)
+
+    const { data: funds, error } = await supabase
+      .from('mf_funds').select('*').eq('user_id', req.user.id).order('created_at')
+    if (error) throw error
+
+    const fundIds = (funds || []).map(f => f.id)
+    let sipsByFund = {}, contributionsByFund = {}, withdrawalsByFund = {}
+    if (fundIds.length) {
+      const [{ data: sips, error: sipErr }, { data: contributions, error: contribErr }, { data: withdrawals, error: withdrawErr }] = await Promise.all([
+        supabase.from('mf_sips').select('*').in('fund_id', fundIds),
+        supabase.from('mf_contributions').select('*').in('fund_id', fundIds).order('year').order('month').order('day'),
+        supabase.from('mf_withdrawals').select('*').in('fund_id', fundIds).order('year').order('month').order('day'),
+      ])
+      if (sipErr) throw sipErr
+      if (contribErr) throw contribErr
+      if (withdrawErr) throw withdrawErr
+      sipsByFund = (sips || []).reduce((acc, s) => { (acc[s.fund_id] ||= []).push(s); return acc }, {})
+      contributionsByFund = (contributions || []).reduce((acc, c) => { (acc[c.fund_id] ||= []).push(c); return acc }, {})
+      withdrawalsByFund = (withdrawals || []).reduce((acc, w) => { (acc[w.fund_id] ||= []).push(w); return acc }, {})
+    }
+
+    res.json((funds || []).map(f => {
+      const sips = sipsByFund[f.id] || []
+      const contributions = contributionsByFund[f.id] || []
+      const withdrawals = withdrawalsByFund[f.id] || []
+      const totalContributed = contributions.reduce((s, c) => s + Number(c.amount || 0), 0)
+      const totalWithdrawn = withdrawals.reduce((s, w) => s + Number(w.amount || 0), 0)
+      return {
+        id: f.id, fundName: f.fund_name, fundCategory: f.fund_category, isActive: f.is_active,
+        sips: sips.map(mapSip),
+        activeSip: (() => { const active = sips.find(s => s.status === 'active'); return active ? mapSip(active) : null })(),
+        contributions: contributions.map(c => ({
+          id: c.id, sipId: c.sip_id, type: c.contribution_type,
+          day: c.day, month: c.month, year: c.year, amount: c.amount,
+        })),
+        withdrawals: withdrawals.map(w => ({
+          id: w.id, day: w.day, month: w.month, year: w.year, amount: w.amount,
+        })),
+        // "Invested" here means net money still in the fund (contributions
+        // minus withdrawals) — there's no live NAV feed in this phase, so
+        // this is cost basis, not market value.
+        totalInvested: totalContributed - totalWithdrawn,
+        totalWithdrawn,
+      }
+    }))
+  } catch (err) { res.status(500).json({ error: err.message }) }
+})
+
+router.post('/funds', requireAuth, async (req, res) => {
+  try {
+    const fundName = (req.body.fundName || '').trim()
+    if (!fundName) return res.status(400).json({ error: 'Fund name is required.' })
+
+    const { data, error } = await supabase
+      .from('mf_funds')
+      .insert({ user_id: req.user.id, fund_name: fundName, fund_category: (req.body.fundCategory || '').trim() })
+      .select().single()
+    if (error) throw error
+    res.json({ id: data.id, fundName: data.fund_name, fundCategory: data.fund_category, isActive: data.is_active })
+  } catch (err) { res.status(500).json({ error: err.message }) }
+})
+
+router.delete('/funds/:id', requireAuth, async (req, res) => {
+  try {
+    const { data: fund } = await supabase
+      .from('mf_funds').select('id').eq('id', req.params.id).eq('user_id', req.user.id).maybeSingle()
+    if (!fund) return res.status(404).json({ error: 'Fund not found.' })
+
+    // Past expenses and earnings are real financial history — money that
+    // actually left or entered the account — so deleting a fund only
+    // removes its own tracking (mf_sips/mf_contributions/mf_withdrawals,
+    // all cascade via fund_id) and unlinks the expenses those contributions
+    // created, same convention as deleting a credit card leaving its past
+    // expenses in place. Withdrawal-linked earnings are left completely
+    // untouched: their description text ("From <fund name>") was already
+    // baked in at withdrawal time, so it keeps reading correctly on its own.
+    const { data: contributions } = await supabase.from('mf_contributions').select('id').eq('fund_id', fund.id)
+    const contributionIds = (contributions || []).map(c => c.id)
+    if (contributionIds.length) {
+      const { error: unlinkErr } = await supabase.from('expenses').update({ mf_contribution_id: null }).in('mf_contribution_id', contributionIds)
+      if (unlinkErr) throw unlinkErr
+    }
+
+    const { error: delFundErr } = await supabase.from('mf_funds').delete().eq('id', fund.id).eq('user_id', req.user.id)
+    if (delFundErr) throw delFundErr
+    res.json({ ok: true })
+  } catch (err) { res.status(500).json({ error: err.message }) }
+})
+
+router.post('/funds/:fundId/sip', requireAuth, async (req, res) => {
+  try {
+    const { data: fund } = await supabase
+      .from('mf_funds').select('id').eq('id', req.params.fundId).eq('user_id', req.user.id).maybeSingle()
+    if (!fund) return res.status(404).json({ error: 'Fund not found.' })
+
+    const { amount, sipDay, startDay, startMonth, startYear, paymentMethod } = req.body
+    if (!Number(amount) || Number(amount) <= 0)
+      return res.status(400).json({ error: 'SIP amount must be greater than zero.' })
+    const day = Number(sipDay)
+    if (!Number.isInteger(day) || day < 1 || day > 31)
+      return res.status(400).json({ error: 'SIP day must be between 1 and 31.' })
+
+    const { data: existingActive } = await supabase
+      .from('mf_sips').select('id').eq('fund_id', fund.id).eq('status', 'active').maybeSingle()
+    if (existingActive)
+      return res.status(400).json({ error: 'This fund already has an active SIP — stop it before starting a new one.' })
+
+    const method = PAYMENT_METHOD_IDS.includes(paymentMethod) ? paymentMethod : 'debit_card'
+    const { data: sip, error } = await supabase
+      .from('mf_sips')
+      .insert({
+        fund_id: fund.id, user_id: req.user.id, amount: Number(amount), sip_day: day, payment_method: method,
+        start_day: Number(startDay), start_month: Number(startMonth), start_year: Number(startYear),
+      })
+      .select().single()
+    if (error) throw error
+
+    // Catch up immediately if the start date is already in the past, rather
+    // than waiting for the next app load.
+    await runBackfill(req.user.id)
+    res.json(mapSip(sip))
+  } catch (err) { res.status(500).json({ error: err.message }) }
+})
+
+router.patch('/sips/:id/stop', requireAuth, async (req, res) => {
+  try {
+    const { data: sip } = await supabase
+      .from('mf_sips').select('id, status').eq('id', req.params.id).eq('user_id', req.user.id).maybeSingle()
+    if (!sip) return res.status(404).json({ error: 'SIP not found.' })
+    if (sip.status === 'stopped') return res.status(400).json({ error: 'SIP is already stopped.' })
+
+    const { error } = await supabase.from('mf_sips').update({ status: 'stopped' }).eq('id', sip.id)
+    if (error) throw error
+    res.json({ ok: true })
+  } catch (err) { res.status(500).json({ error: err.message }) }
+})
+
+router.delete('/sips/:id', requireAuth, async (req, res) => {
+  try {
+    const { data: sip } = await supabase
+      .from('mf_sips').select('id').eq('id', req.params.id).eq('user_id', req.user.id).maybeSingle()
+    if (!sip) return res.status(404).json({ error: 'SIP not found.' })
+
+    const { data: contributions } = await supabase.from('mf_contributions').select('id').eq('sip_id', sip.id)
+    const contributionIds = (contributions || []).map(c => c.id)
+    if (contributionIds.length) {
+      const { error: delExpErr } = await supabase.from('expenses').delete().in('mf_contribution_id', contributionIds)
+      if (delExpErr) throw delExpErr
+    }
+
+    const { error: delSipErr } = await supabase.from('mf_sips').delete().eq('id', sip.id)
+    if (delSipErr) throw delSipErr
+    res.json({ ok: true })
+  } catch (err) { res.status(500).json({ error: err.message }) }
+})
+
+router.post('/funds/:fundId/lumpsum', requireAuth, async (req, res) => {
+  try {
+    const { data: fund } = await supabase
+      .from('mf_funds').select('id, fund_name').eq('id', req.params.fundId).eq('user_id', req.user.id).maybeSingle()
+    if (!fund) return res.status(404).json({ error: 'Fund not found.' })
+
+    const { day, month, year, amount, paymentMethod } = req.body
+    if (!Number(amount) || Number(amount) <= 0)
+      return res.status(400).json({ error: 'Amount must be greater than zero.' })
+
+    const method = PAYMENT_METHOD_IDS.includes(paymentMethod) ? paymentMethod : 'debit_card'
+    const { data: contribution, error: contribErr } = await supabase
+      .from('mf_contributions')
+      .insert({
+        fund_id: fund.id, sip_id: null, contribution_type: 'lumpsum',
+        day: Number(day), month: Number(month), year: Number(year), amount: Number(amount),
+      })
+      .select().single()
+    if (contribErr) throw contribErr
+
+    const { error: expErr } = await supabase.from('expenses').insert({
+      user_id: req.user.id, year: Number(year), month: Number(month), day: Number(day),
+      category: 'mutual_fund', amount: Number(amount), remark: `${fund.fund_name} — Lumpsum`,
+      payment_method: method, mf_contribution_id: contribution.id,
+    })
+    if (expErr) throw expErr
+
+    // A manual top-up on a closed (fully-withdrawn) fund means it's back in use.
+    await reactivateFunds([fund.id])
+
+    res.json({
+      id: contribution.id, fundId: contribution.fund_id, type: 'lumpsum',
+      day: contribution.day, month: contribution.month, year: contribution.year, amount: contribution.amount,
+    })
+  } catch (err) { res.status(500).json({ error: err.message }) }
+})
+
+router.delete('/contributions/:id', requireAuth, async (req, res) => {
+  try {
+    const { data: contribution } = await supabase
+      .from('mf_contributions').select('id, fund_id').eq('id', req.params.id).maybeSingle()
+    if (!contribution) return res.status(404).json({ error: 'Contribution not found.' })
+
+    const { data: fund } = await supabase
+      .from('mf_funds').select('id').eq('id', contribution.fund_id).eq('user_id', req.user.id).maybeSingle()
+    if (!fund) return res.status(404).json({ error: 'Contribution not found.' })
+
+    const { error: delExpErr } = await supabase.from('expenses').delete().eq('mf_contribution_id', contribution.id)
+    if (delExpErr) throw delExpErr
+    const { error: delContribErr } = await supabase.from('mf_contributions').delete().eq('id', contribution.id)
+    if (delContribErr) throw delContribErr
+    res.json({ ok: true })
+  } catch (err) { res.status(500).json({ error: err.message }) }
+})
+
+// Redeeming money OUT of a fund — the mirror image of a lumpsum: instead of
+// an expenses row (money leaving the bank account), this creates an
+// earnings row (money coming back in), tagged with which fund it came from,
+// so it shows up in the Earn tab automatically.
+router.post('/funds/:fundId/withdraw', requireAuth, async (req, res) => {
+  try {
+    const { data: fund } = await supabase
+      .from('mf_funds').select('id, fund_name').eq('id', req.params.fundId).eq('user_id', req.user.id).maybeSingle()
+    if (!fund) return res.status(404).json({ error: 'Fund not found.' })
+
+    const { day, month, year, amount } = req.body
+    if (!Number(amount) || Number(amount) <= 0)
+      return res.status(400).json({ error: 'Amount must be greater than zero.' })
+
+    const [{ data: contributions, error: contribErr }, { data: withdrawals, error: withdrawErr }] = await Promise.all([
+      supabase.from('mf_contributions').select('amount').eq('fund_id', fund.id),
+      supabase.from('mf_withdrawals').select('amount').eq('fund_id', fund.id),
+    ])
+    if (contribErr) throw contribErr
+    if (withdrawErr) throw withdrawErr
+    const netInvested = (contributions || []).reduce((s, c) => s + Number(c.amount || 0), 0)
+      - (withdrawals || []).reduce((s, w) => s + Number(w.amount || 0), 0)
+    if (Number(amount) > netInvested)
+      return res.status(400).json({ error: `You can withdraw at most ₹${netInvested.toLocaleString('en-IN')} — that's what's currently invested in this fund.` })
+
+    const { data: earning, error: earnErr } = await supabase
+      .from('earnings')
+      .insert({ user_id: req.user.id, year: Number(year), month: Number(month), description: `From ${fund.fund_name}`, amount: Number(amount), is_salary: false })
+      .select().single()
+    if (earnErr) throw earnErr
+
+    const { data: withdrawal, error: withdrawInsertErr } = await supabase
+      .from('mf_withdrawals')
+      .insert({
+        fund_id: fund.id, user_id: req.user.id, day: Number(day), month: Number(month), year: Number(year),
+        amount: Number(amount), earning_id: earning.id,
+      })
+      .select().single()
+    if (withdrawInsertErr) throw withdrawInsertErr
+
+    // Fully redeemed and nothing left to feed it → close the fund
+    // automatically (reopens on its own the moment money flows back in).
+    await maybeCloseFund(fund.id)
+
+    res.json({
+      id: withdrawal.id, fundId: withdrawal.fund_id, day: withdrawal.day, month: withdrawal.month, year: withdrawal.year,
+      amount: withdrawal.amount,
+      earning: { id: earning.id, description: earning.description, amount: earning.amount, isSalary: earning.is_salary },
+    })
+  } catch (err) { res.status(500).json({ error: err.message }) }
+})
+
+router.delete('/withdrawals/:id', requireAuth, async (req, res) => {
+  try {
+    const { data: withdrawal } = await supabase
+      .from('mf_withdrawals').select('id, fund_id, earning_id').eq('id', req.params.id).eq('user_id', req.user.id).maybeSingle()
+    if (!withdrawal) return res.status(404).json({ error: 'Withdrawal not found.' })
+
+    // Same FK-ordering constraint as the fund delete route above: the
+    // withdrawal row must go before the earnings row it references.
+    const { error: delWithdrawErr } = await supabase.from('mf_withdrawals').delete().eq('id', withdrawal.id)
+    if (delWithdrawErr) throw delWithdrawErr
+    if (withdrawal.earning_id) {
+      const { error: delEarnErr } = await supabase.from('earnings').delete().eq('id', withdrawal.earning_id)
+      if (delEarnErr) throw delEarnErr
+    }
+    res.json({ ok: true })
+  } catch (err) { res.status(500).json({ error: err.message }) }
+})
+
+export default router

@@ -62,8 +62,8 @@ export const addExpense = (year, month, day, category, amount, remark, paymentMe
 
 export const deleteExpense = (id) => authReq('DELETE', `/api/data/expense/${id}`)
 
-export const addAchievement = (year, month, date, amount, remark) =>
-  authReq('POST', '/api/data/achievement', { year, month, date, amount, remark })
+export const addAchievement = (year, month, date, amount, remark, type) =>
+  authReq('POST', '/api/data/achievement', { year, month, date, amount, remark, type })
 
 export const deleteAchievement = (id) => authReq('DELETE', `/api/data/achievement/${id}`)
 
@@ -96,3 +96,24 @@ export const deleteEmi = (id) => authReq('DELETE', `/api/emi/${id}`)
 
 export const confirmEmiDiscount = (id, { day, month, year, amount }) =>
   authReq('POST', `/api/emi/${id}/confirm-discount`, { day, month, year, amount })
+
+// ── Mutual Funds (member JWT required) ──────────────────────────────────────
+export const getMutualFunds = () => authReq('GET', '/api/mf/funds')
+
+export const addMutualFund = (fund) => authReq('POST', '/api/mf/funds', fund)
+
+export const deleteMutualFund = (id) => authReq('DELETE', `/api/mf/funds/${id}`)
+
+export const addSip = (fundId, sip) => authReq('POST', `/api/mf/funds/${fundId}/sip`, sip)
+
+export const stopSip = (id) => authReq('PATCH', `/api/mf/sips/${id}/stop`)
+
+export const deleteSip = (id) => authReq('DELETE', `/api/mf/sips/${id}`)
+
+export const addLumpsum = (fundId, contribution) => authReq('POST', `/api/mf/funds/${fundId}/lumpsum`, contribution)
+
+export const deleteContribution = (id) => authReq('DELETE', `/api/mf/contributions/${id}`)
+
+export const withdrawFund = (fundId, withdrawal) => authReq('POST', `/api/mf/funds/${fundId}/withdraw`, withdrawal)
+
+export const deleteWithdrawal = (id) => authReq('DELETE', `/api/mf/withdrawals/${id}`)

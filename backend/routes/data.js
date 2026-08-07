@@ -16,7 +16,7 @@ const fetchUserData = async (userId, year, month) => {
       id: e.id, day: e.day, category: e.category, amount: e.amount, remark: e.remark ?? '',
       paymentMethod: e.payment_method ?? 'cash', cardId: e.card_id ?? null,
     })),
-    achievements: (achRows || []).map(a => ({ id: a.id, date: a.entry_date, amount: a.amount, remark: a.remark })),
+    achievements: (achRows || []).map(a => ({ id: a.id, date: a.entry_date, amount: a.amount, remark: a.remark, type: a.type })),
   }
 }
 
@@ -87,14 +87,19 @@ router.delete('/expense/:id', requireAuth, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }) }
 })
 
+const ACHIEVEMENT_TYPES = ['fixed_deposit', 'recurring_deposit', 'gold', 'ppf', 'other']
+
 router.post('/achievement', requireAuth, async (req, res) => {
   try {
-    const { year, month, date, amount, remark } = req.body
+    const { year, month, date, amount, remark, type } = req.body
     const { data, error } = await supabase.from('achievements')
-      .insert({ user_id: req.user.id, year, month, entry_date: date, amount, remark: remark || '' })
+      .insert({
+        user_id: req.user.id, year, month, entry_date: date, amount, remark: remark || '',
+        type: ACHIEVEMENT_TYPES.includes(type) ? type : 'other',
+      })
       .select().single()
     if (error) throw error
-    res.json({ id: data.id, date: data.entry_date, amount: data.amount, remark: data.remark })
+    res.json({ id: data.id, date: data.entry_date, amount: data.amount, remark: data.remark, type: data.type })
   } catch (err) { res.status(500).json({ error: err.message }) }
 })
 

@@ -142,6 +142,7 @@ router.get('/:id/expenses', requireAuth, async (req, res) => {
     const { data, error } = await supabase
       .from('expenses').select('*')
       .eq('card_id', req.params.id).eq('user_id', req.user.id)
+      .neq('category', 'card_payment')
       .order('year').order('month').order('day')
     if (error) throw error
 

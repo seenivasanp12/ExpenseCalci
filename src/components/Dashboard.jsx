@@ -15,6 +15,7 @@ import {
   addExpense, deleteExpense, addAchievement, deleteAchievement,
   getCards, addCard, updateCard, deleteCard, markCardPaid,
   getEmis, addEmi, deleteEmi, confirmEmiDiscount,
+  getMutualFunds, addMutualFund, deleteMutualFund, addSip, stopSip, addLumpsum, withdrawFund,
 } from '../utils/api'
 import { cashBasisTotal } from '../utils/expenseTotals'
 import MaskedAmount from './MaskedAmount'
@@ -56,6 +57,7 @@ export default function Dashboard({ user, onLogout }) {
   const [menuOpen, setMenuOpen] = useState(false)
   const [cards, setCards]     = useState([])
   const [emis, setEmis]       = useState([])
+  const [mutualFunds, setMutualFunds] = useState([])
 
   const gradient = COLOR_POOL[(user?.color_index ?? 0) % COLOR_POOL.length]
 
@@ -73,10 +75,14 @@ export default function Dashboard({ user, onLogout }) {
 
   useEffect(() => { loadData() }, [loadData])
 
-  // Cards and EMI plans aren't month-scoped, so they're fetched once rather than on every navigateMonth().
+  // Cards, EMI plans, and mutual funds aren't month-scoped, so they're
+  // fetched once rather than on every navigateMonth(). Loading mutual funds
+  // is also what triggers the SIP auto-backfill pass on the backend (see
+  // GET /api/mf/funds) — this is the "silent auto-post on app load" moment.
   useEffect(() => {
     getCards().then(setCards).catch(() => {})
     getEmis().then(setEmis).catch(() => {})
+    getMutualFunds().then(setMutualFunds).catch(() => {})
   }, [])
 
   const navigateMonth = (dir) => {
@@ -148,13 +154,51 @@ export default function Dashboard({ user, onLogout }) {
   }
 
   // ── Achievement mutations ─────────────────────────────────
-  const handleAddAchievement = async (date, amount, remark) => {
-    const entry = await addAchievement(year, month + 1, date, amount, remark)
+  const handleAddAchievement = async (date, amount, remark, type) => {
+    const entry = await addAchievement(year, month + 1, date, amount, remark, type)
     setData(d => ({ ...d, achievements: [...d.achievements, entry] }))
   }
   const handleDeleteAchievement = async (id) => {
     await deleteAchievement(id)
     setData(d => ({ ...d, achievements: d.achievements.filter(a => a.id !== id) }))
+  }
+
+  // ── Mutual fund mutations ───────────────────────────────────
+  // A SIP/lumpsum action also creates a real expense row, so refetch both
+  // the fund list and whatever month is currently on screen — same
+  // refetch-both pattern EMI already uses for the same reason.
+  const handleAddMutualFund = async (fund) => {
+    const created = await addMutualFund(fund)
+    setMutualFunds(fs => [...fs, { ...created, sips: [], activeSip: null, contributions: [], totalInvested: 0 }])
+  }
+  const handleDeleteMutualFund = async (id) => {
+    await deleteMutualFund(id)
+    const [freshFunds] = await Promise.all([getMutualFunds(), loadData()])
+    setMutualFunds(freshFunds)
+  }
+  const handleAddSip = async (fundId, sip) => {
+    await addSip(fundId, sip)
+    const [freshFunds] = await Promise.all([getMutualFunds(), loadData()])
+    setMutualFunds(freshFunds)
+  }
+  const handleStopSip = async (id) => {
+    await stopSip(id)
+    setMutualFunds(await getMutualFunds())
+  }
+  const handleAddLumpsum = async (fundId, contribution) => {
+    await addLumpsum(fundId, contribution)
+    const [freshFunds] = await Promise.all([getMutualFunds(), loadData()])
+    setMutualFunds(freshFunds)
+  }
+  // A withdrawal creates an earnings row dated on whatever month/year the
+  // user picked in the form (not necessarily the month currently on
+  // screen) — loadData() only refreshes what's currently displayed, so the
+  // new Earn entry shows up immediately if relevant, same caveat as
+  // handleConfirmCardPayment above.
+  const handleWithdrawFund = async (fundId, withdrawal) => {
+    await withdrawFund(fundId, withdrawal)
+    const [freshFunds] = await Promise.all([getMutualFunds(), loadData()])
+    setMutualFunds(freshFunds)
   }
 
   const totalEarn         = data.earn.reduce((s, e) => s + Number(e.amount || 0), 0)
@@ -261,7 +305,11 @@ export default function Dashboard({ user, onLogout }) {
                 {activeTab === 'Expenses'    && <ExpensesTab    expenses={data.expenses} onAdd={handleAddExpense}        onDelete={handleDeleteExpense} year={year} month={month} cards={cards} />}
                 {activeTab === 'CreditCard'  && <CreditCardTab  cards={cards} onAdd={handleAddCard} onUpdate={handleUpdateCard} onDelete={handleDeleteCard} onConfirmPayment={handleConfirmCardPayment} />}
                 {activeTab === 'Emi'         && <EmiTab         emis={emis} cards={cards} onAdd={handleAddEmi} onDelete={handleDeleteEmi} onConfirmDiscount={handleConfirmEmiDiscount} />}
-                {activeTab === 'Achievement' && <AchievementTab achievements={data.achievements} onAdd={handleAddAchievement} onDelete={handleDeleteAchievement} />}
+                {activeTab === 'Achievement' && <AchievementTab
+                  achievements={data.achievements} onAddAchievement={handleAddAchievement} onDeleteAchievement={handleDeleteAchievement}
+                  mutualFunds={mutualFunds} onAddFund={handleAddMutualFund} onAddSip={handleAddSip} onStopSip={handleStopSip}
+                  onAddLumpsum={handleAddLumpsum} onWithdrawFund={handleWithdrawFund} onDeleteFund={handleDeleteMutualFund}
+                />}
                 {activeTab === 'Categories'  && <CategoriesTab  expenses={data.expenses} />}
                 {activeTab === 'Calculate'   && <CalculateTab   data={data} year={year} month={month} />}
               </>
