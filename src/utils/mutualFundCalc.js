@@ -56,13 +56,30 @@ export const fundHistory = (fund) => [
 // The next date an active SIP is due, derived from its own posted
 // contributions rather than trusting "today" directly — so a SIP that's
 // behind on backfill (e.g. just created with a past start date) still shows
-// the correct next gap once it catches up.
+// the correct next gap once it catches up. A skipped month counts as
+// "handled" too — otherwise a month with no contribution (because it was
+// skipped) would keep looking due forever and could get offered for
+// skipping again.
 export const nextSipDueDate = (sip, contributions) => {
-  const sipContribs = contributions.filter(c => c.sipId === sip.id)
-  if (!sipContribs.length) return { day: sip.sipDay, month: sip.startMonth, year: sip.startYear }
+  const handled = [
+    ...contributions.filter(c => c.sipId === sip.id).map(c => ({ year: c.year, month: c.month })),
+    ...(sip.skips || []),
+  ]
+  if (!handled.length) return { day: sip.sipDay, month: sip.startMonth, year: sip.startYear }
 
-  const last = sipContribs.reduce((max, c) =>
+  const last = handled.reduce((max, c) =>
     (c.year * 12 + c.month) > (max.year * 12 + max.month) ? c : max)
   const next = addMonthsLocal(last.year, last.month, 1)
   return { day: sip.sipDay, month: next.month, year: next.year }
+}
+
+// Mirrors backend/routes/mutualFunds.js's effectiveSipAmount — the amount a
+// SIP actually posts for a given month once an optional annual step-up is
+// factored in. Kept in sync by hand rather than shared, same as this file's
+// other backend-mirroring helpers (client-derives-everything convention).
+export const effectiveSipAmount = (sip, year, month) => {
+  if (!sip.stepUpPercent) return Number(sip.amount)
+  const monthsSinceStart = (year * 12 + month) - (sip.startYear * 12 + sip.startMonth)
+  const yearsElapsed = Math.max(0, Math.floor(monthsSinceStart / 12))
+  return Math.round(Number(sip.amount) * Math.pow(1 + Number(sip.stepUpPercent) / 100, yearsElapsed))
 }

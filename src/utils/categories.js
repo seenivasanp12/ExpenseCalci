@@ -1,6 +1,6 @@
 import {
   Utensils, ShoppingBasket, FileText, ArrowLeftRight,
-  Dumbbell, Plane, Clapperboard, ShoppingBag, Repeat, Landmark, MoreHorizontal,
+  Dumbbell, Plane, Clapperboard, ShoppingBag, Repeat, Landmark, TrendingUp, MoreHorizontal,
 } from 'lucide-react'
 
 export const CATEGORIES = [
@@ -13,6 +13,7 @@ export const CATEGORIES = [
   { id: 'entertainment',   label: 'Entertainment',       icon: Clapperboard,   bg: 'bg-purple-100',  text: 'text-purple-600',  dot: 'bg-purple-500',  bar: 'bg-purple-500',  hex: '#a855f7' },
   { id: 'shopping',        label: 'Shopping',            icon: ShoppingBag,    bg: 'bg-amber-100',   text: 'text-amber-600',   dot: 'bg-amber-500',   bar: 'bg-amber-500',   hex: '#f59e0b' },
   { id: 'emi',             label: 'EMI',                 icon: Repeat,         bg: 'bg-cyan-100',    text: 'text-cyan-600',    dot: 'bg-cyan-500',    bar: 'bg-cyan-500',    hex: '#06b6d4' },
+  { id: 'mutual_fund',     label: 'Mutual Fund',         icon: TrendingUp,     bg: 'bg-yellow-100',  text: 'text-yellow-600',  dot: 'bg-yellow-500',  bar: 'bg-yellow-500',  hex: '#eab308' },
   { id: 'card_payment',    label: 'Card Payment',        icon: Landmark,       bg: 'bg-violet-100',  text: 'text-violet-600',  dot: 'bg-violet-500',  bar: 'bg-violet-500',  hex: '#8b5cf6' },
   { id: 'others',          label: 'Others',              icon: MoreHorizontal, bg: 'bg-gray-100',    text: 'text-gray-600',    dot: 'bg-gray-400',    bar: 'bg-gray-400',    hex: '#9ca3af' },
 ]

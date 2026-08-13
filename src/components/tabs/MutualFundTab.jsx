@@ -1,8 +1,8 @@
 import { useState } from 'react'
-import { Plus, Trash2, Loader2, TrendingUp, StopCircle, ArrowDownCircle, ChevronDown, ChevronUp } from 'lucide-react'
+import { Plus, Trash2, Loader2, TrendingUp, StopCircle, SkipForward, X, ArrowDownCircle, ChevronDown, ChevronUp, ArrowUp } from 'lucide-react'
 import { PAYMENT_METHODS } from '../../utils/paymentMethods'
 import { MF_CATEGORIES, OTHER_CATEGORY } from '../../utils/mfCategories'
-import { CHART_RANGES, cumulativeSeries, nextSipDueDate, allContributions, fundHistory } from '../../utils/mutualFundCalc'
+import { CHART_RANGES, cumulativeSeries, nextSipDueDate, allContributions, fundHistory, effectiveSipAmount } from '../../utils/mutualFundCalc'
 
 const MONTH_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
 // Paying INTO a fund with a credit card isn't a supported case, same as
@@ -10,6 +10,11 @@ const MONTH_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct'
 const PAYMENT_METHOD_OPTIONS = PAYMENT_METHODS.filter(m => m.id !== 'credit_card')
 
 const HISTORY_LABEL = { sip: 'SIP', lumpsum: 'Lumpsum', withdrawal: 'Withdrawal' }
+
+const VIEWS = [
+  { id: 'dashboard', label: 'Dashboard' },
+  { id: 'sips',      label: 'SIPs' },
+]
 
 const todayParts = () => {
   const now = new Date()
@@ -21,8 +26,14 @@ const dateInputValue = ({ day, month, year }) => `${year}-${String(month).padSta
 const parseDateInput = (value) => { const [year, month, day] = value.split('-').map(Number); return { day, month, year } }
 
 const emptyFundForm = { fundName: '', fundCategory: '', customCategory: '' }
+const emptySipForm = () => ({ amount: '', sipDay: '5', paymentMethod: 'debit_card', stepUp: false, stepUpPercent: '10', ...todayParts() })
 
-export default function MutualFundTab({ funds, onAddFund, onAddSip, onStopSip, onAddLumpsum, onWithdrawFund, onDeleteFund }) {
+// Groww-style split: Dashboard is where funds live (invested totals, chart,
+// history, Lumpsum/Withdraw) with no SIP lifecycle controls at all — SIPs is
+// the dedicated place to manage the schedule itself (Skip/Stop/step-up),
+// same separation of concerns Groww's own app uses.
+export default function MutualFundTab({ funds, onAddFund, onAddSip, onStopSip, onSkipSip, onUnskipSip, onAddLumpsum, onWithdrawFund, onDeleteFund }) {
+  const [mfView, setMfView] = useState('dashboard')
   const [range, setRange] = useState('All')
   const [showAddFund, setShowAddFund] = useState(false)
   const [fundForm, setFundForm] = useState(emptyFundForm)
@@ -32,7 +43,7 @@ export default function MutualFundTab({ funds, onAddFund, onAddSip, onStopSip, o
   const [showClosed, setShowClosed] = useState(false)
 
   const [sipFundId, setSipFundId] = useState(null)
-  const [sipForm, setSipForm] = useState({ amount: '', sipDay: '5', paymentMethod: 'debit_card', ...todayParts() })
+  const [sipForm, setSipForm] = useState(emptySipForm())
 
   const [lumpsumFundId, setLumpsumFundId] = useState(null)
   const [lumpsumForm, setLumpsumForm] = useState({ amount: '', paymentMethod: 'debit_card', ...todayParts() })
@@ -61,15 +72,17 @@ export default function MutualFundTab({ funds, onAddFund, onAddSip, onStopSip, o
 
   const openSipForm = (fundId) => {
     setSipFundId(fundId)
-    setSipForm({ amount: '', sipDay: '5', paymentMethod: 'debit_card', ...todayParts() })
+    setSipForm(emptySipForm())
   }
   const handleAddSip = async () => {
     if (!sipFundId || !sipForm.amount) return
+    if (sipForm.stepUp && (!sipForm.stepUpPercent || Number(sipForm.stepUpPercent) <= 0)) return
     setSaving(true)
     try {
       await onAddSip(sipFundId, {
         amount: Number(sipForm.amount), sipDay: Number(sipForm.sipDay), paymentMethod: sipForm.paymentMethod,
         startDay: sipForm.day, startMonth: sipForm.month, startYear: sipForm.year,
+        stepUpPercent: sipForm.stepUp ? Number(sipForm.stepUpPercent) : null,
       })
       setSipFundId(null)
     } finally { setSaving(false) }
@@ -112,6 +125,18 @@ export default function MutualFundTab({ funds, onAddFund, onAddSip, onStopSip, o
     try { await onStopSip(id) } finally { setBusyId(null) }
   }
 
+  const handleSkipSip = async (id, due) => {
+    const label = `${MONTH_SHORT[due.month - 1]} ${due.year}`
+    if (!window.confirm(`Skip the ${label} installment? It won't be charged or logged as an expense that month — the SIP resumes automatically after.`)) return
+    setBusyId(id)
+    try { await onSkipSip(id, { year: due.year, month: due.month }) } finally { setBusyId(null) }
+  }
+
+  const handleUnskipSip = async (id, skip) => {
+    setBusyId(id)
+    try { await onUnskipSip(id, skip) } finally { setBusyId(null) }
+  }
+
   const handleDeleteFund = async (id) => {
     if (!window.confirm('Delete this fund? Its SIP/lumpsum/withdrawal tracking goes away, but past expenses and Earn entries stay in your records — same as removing a credit card.')) return
     setBusyId(id)
@@ -125,20 +150,25 @@ export default function MutualFundTab({ funds, onAddFund, onAddSip, onStopSip, o
   // exact real-world case being modeled: fully redeemed today, reopens on
   // its own the moment the SIP's next installment posts. So this list is
   // built from every fund, not just the active ones.
+  //
+  // No Skip/Stop here on purpose — this is the Dashboard, where a fund is
+  // something you look at and fund (Lumpsum/Withdraw/+SIP); the SIP's own
+  // lifecycle controls live in the SIPs tab instead.
   const renderFund = (fund) => {
     const expanded = expandedId === fund.id
     const history = expanded ? fundHistory(fund) : []
     const closed = fund.isActive === false
+    const toggleExpanded = () => setExpandedId(expanded ? null : fund.id)
     return (
       <div key={fund.id} className={`rounded-2xl border overflow-hidden bg-white ${closed ? 'border-gray-100 opacity-60' : 'border-gray-100'}`}>
         <div className="flex items-center justify-between px-4 py-3">
-          <div className="min-w-0">
+          <button onClick={toggleExpanded} className="min-w-0 flex-1 text-left">
             <div className="flex items-center gap-2">
               <p className="font-semibold text-gray-800 text-sm truncate">{fund.fundName}</p>
               {closed && <span className="text-[10px] font-bold text-gray-400 border border-gray-200 rounded-full px-2 py-0.5 flex-shrink-0">Closed</span>}
             </div>
             {fund.fundCategory && <p className="text-xs text-gray-400 truncate">{fund.fundCategory}</p>}
-          </div>
+          </button>
           <button
             onClick={() => handleDeleteFund(fund.id)}
             disabled={busyId === fund.id}
@@ -149,7 +179,7 @@ export default function MutualFundTab({ funds, onAddFund, onAddSip, onStopSip, o
         </div>
 
         <div className="px-4 pb-3 flex items-center justify-between gap-2">
-          <button onClick={() => setExpandedId(expanded ? null : fund.id)} className="text-left">
+          <button onClick={toggleExpanded} className="text-left">
             <p className="text-[11px] text-gray-400 flex items-center gap-1">
               Invested {expanded ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
             </p>
@@ -172,12 +202,17 @@ export default function MutualFundTab({ funds, onAddFund, onAddSip, onStopSip, o
           </div>
         </div>
 
-        {fund.activeSip && (
-          <div className="mx-4 mb-3 px-3 py-2 rounded-xl bg-amber-50 border border-amber-100 text-[11px] text-amber-700 font-semibold">
-            SIP ₹{Number(fund.activeSip.amount).toLocaleString('en-IN')} on day {fund.activeSip.sipDay} of every month
-            {closed && ' — will reopen this fund automatically once it posts'}
-          </div>
-        )}
+        {fund.activeSip && (() => {
+          const due = nextSipDueDate(fund.activeSip, contributions)
+          const amount = effectiveSipAmount(fund.activeSip, due.year, due.month)
+          return (
+            <div className="mx-4 mb-3 px-3 py-2 rounded-xl bg-amber-50 border border-amber-100 text-[11px] text-amber-700 font-semibold">
+              SIP ₹{Number(amount).toLocaleString('en-IN')} on day {fund.activeSip.sipDay} of every month
+              {fund.activeSip.stepUpPercent ? ` · steps up ${fund.activeSip.stepUpPercent}%/yr` : ''}
+              {closed && ' — will reopen this fund automatically once it posts'}
+            </div>
+          )
+        })()}
 
         {/* Full history — every SIP installment, lumpsum, and withdrawal for
             this fund, not just the current month's activity */}
@@ -230,6 +265,20 @@ export default function MutualFundTab({ funds, onAddFund, onAddSip, onStopSip, o
             >
               {PAYMENT_METHOD_OPTIONS.map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
             </select>
+            <label className="flex items-center gap-2 text-[11px] text-gray-500 font-semibold px-0.5">
+              <input type="checkbox" checked={sipForm.stepUp} onChange={e => setSipForm(f => ({ ...f, stepUp: e.target.checked }))} />
+              Step up every year
+            </label>
+            {sipForm.stepUp && (
+              <div className="relative">
+                <input
+                  type="number" min="1" max="100" value={sipForm.stepUpPercent}
+                  onChange={e => setSipForm(f => ({ ...f, stepUpPercent: e.target.value }))}
+                  placeholder="10" className="w-full pl-2 pr-14 py-2.5 rounded-lg border border-gray-200 text-xs"
+                />
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs">% / yr</span>
+              </div>
+            )}
             <div className="flex gap-2">
               <button onClick={() => setSipFundId(null)} className="flex-1 py-2 rounded-lg border border-gray-200 text-gray-500 text-xs font-bold">Cancel</button>
               <button
@@ -311,134 +360,191 @@ export default function MutualFundTab({ funds, onAddFund, onAddSip, onStopSip, o
 
   return (
     <div className="space-y-4">
-      {/* Growth chart — net money invested (contributions minus withdrawals),
-          not live market value (no NAV feed in this phase) */}
-      {contributions.length > 0 && (
-        <div className="bg-white rounded-2xl border border-gray-100 p-4">
-          <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-3">Invested Over Time</p>
-          <InvestedChart series={series} />
-          <div className="grid grid-cols-5 gap-1.5 mt-3">
-            {CHART_RANGES.map(r => (
-              <button
-                key={r}
-                onClick={() => setRange(r)}
-                className={`py-1.5 rounded-lg border text-[11px] font-semibold transition-colors ${
-                  range === r ? 'border-amber-400 bg-amber-50 text-amber-600 ring-2 ring-amber-100' : 'border-gray-100 text-gray-400 hover:bg-gray-50'
-                }`}
-              >
-                {r}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Active SIPs */}
-      {activeSips.length > 0 && (
-        <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
-          <div className="px-4 py-2.5 bg-amber-50/60 text-xs font-bold text-gray-600">Active SIPs ({activeSips.length})</div>
-          <div className="divide-y divide-gray-50">
-            {activeSips.map(({ fund, sip, due }) => (
-              <div key={sip.id} className="flex items-center justify-between px-4 py-3">
-                <div className="min-w-0">
-                  <p className="text-sm font-semibold text-gray-800 truncate">{fund.fundName}</p>
-                  <p className="text-xs text-gray-400">₹{Number(sip.amount).toLocaleString('en-IN')}/month</p>
-                </div>
-                <div className="flex items-center gap-2 flex-shrink-0">
-                  <span className="text-[11px] font-bold text-gray-500 border border-gray-200 rounded-lg px-2 py-1">{formatDate(due)}</span>
-                  <button
-                    onClick={() => handleStopSip(sip.id)}
-                    disabled={busyId === sip.id}
-                    aria-label="Stop SIP"
-                    className="p-1.5 rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50 disabled:opacity-40"
-                  >
-                    {busyId === sip.id ? <Loader2 size={14} className="animate-spin" /> : <StopCircle size={14} />}
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Fund list */}
-      {funds.length === 0 ? (
-        <div className="text-center py-10 text-gray-300">
-          <TrendingUp size={40} className="mx-auto mb-2 opacity-40" />
-          <p className="text-sm">No mutual funds added yet</p>
-        </div>
-      ) : activeFunds.length === 0 ? (
-        <p className="text-center text-sm text-gray-400 py-6">Every fund is fully withdrawn and closed — see below, or add a new one.</p>
-      ) : (
-        <div className="space-y-3">{activeFunds.map(renderFund)}</div>
-      )}
-
-      {/* Closed funds — fully redeemed with nothing left to feed them.
-          Collapsed by default so a "done" fund doesn't clutter the active
-          list, but its history stays one tap away rather than disappearing. */}
-      {closedFunds.length > 0 && (
-        <div className="space-y-3">
+      {/* Dashboard / SIPs segmented control */}
+      <div className="flex gap-1.5 bg-gray-100 rounded-2xl p-1">
+        {VIEWS.map(v => (
           <button
-            onClick={() => setShowClosed(v => !v)}
-            className="w-full flex items-center justify-between px-4 py-2.5 rounded-xl bg-gray-50 border border-gray-100 text-xs font-bold text-gray-400 hover:bg-gray-100"
+            key={v.id}
+            onClick={() => setMfView(v.id)}
+            className={`flex-1 py-2 rounded-xl text-sm font-bold transition-colors ${
+              mfView === v.id ? 'bg-white text-amber-600 shadow-sm' : 'text-gray-400 hover:text-gray-600'
+            }`}
           >
-            <span>Closed Funds ({closedFunds.length})</span>
-            {showClosed ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+            {v.label}{v.id === 'sips' && activeSips.length > 0 ? ` (${activeSips.length})` : ''}
           </button>
-          {showClosed && closedFunds.map(renderFund)}
-        </div>
-      )}
+        ))}
+      </div>
 
-      {/* Add fund */}
-      {!showAddFund ? (
-        <button
-          onClick={() => setShowAddFund(true)}
-          className="w-full flex items-center justify-center gap-2 bg-amber-50 border border-amber-100 text-amber-600 font-bold text-sm rounded-2xl py-3 hover:bg-amber-100 transition-colors"
-        >
-          <Plus size={16} /> Add Mutual Fund
-        </button>
-      ) : (
-        <div className="bg-amber-50 rounded-2xl p-4 space-y-3 border border-amber-100">
-          <div className="flex items-center gap-2 text-amber-600 font-bold text-sm">
-            <div className="w-6 h-6 rounded-full bg-amber-200 flex items-center justify-center"><Plus size={14} /></div>
-            Add Mutual Fund
-          </div>
-          <input
-            type="text" value={fundForm.fundName} onChange={e => setFundForm(f => ({ ...f, fundName: e.target.value }))}
-            placeholder="e.g. Motilal Oswal Midcap Fund Direct Growth"
-            className="w-full px-4 py-3 rounded-xl border border-amber-200 focus:border-amber-400 outline-none text-gray-800 bg-white text-sm"
-          />
-          <select
-            value={fundForm.fundCategory} onChange={e => setFundForm(f => ({ ...f, fundCategory: e.target.value }))}
-            className="w-full px-3 py-3 rounded-xl border border-amber-200 focus:border-amber-400 outline-none text-gray-800 bg-white text-sm"
-          >
-            <option value="">Category (optional)…</option>
-            {MF_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-            <option value={OTHER_CATEGORY}>Other (type manually)</option>
-          </select>
-          {fundForm.fundCategory === OTHER_CATEGORY && (
-            <input
-              type="text" value={fundForm.customCategory} onChange={e => setFundForm(f => ({ ...f, customCategory: e.target.value }))}
-              placeholder="Category name"
-              className="w-full px-4 py-3 rounded-xl border border-amber-200 focus:border-amber-400 outline-none text-gray-800 bg-white text-sm"
-            />
+      {mfView === 'sips' ? (
+        <div className="space-y-3">
+          {activeSips.length === 0 ? (
+            <div className="text-center py-10 text-gray-300">
+              <SkipForward size={40} className="mx-auto mb-2 opacity-40" />
+              <p className="text-sm text-gray-400">No active SIPs — start one from a fund in Dashboard.</p>
+            </div>
+          ) : (
+            <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+              <div className="divide-y divide-gray-50">
+                {activeSips.map(({ fund, sip, due }) => (
+                  <div key={sip.id} className="px-4 py-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-gray-800 truncate">{fund.fundName}</p>
+                        <p className="text-xs text-gray-400 flex items-center gap-1.5">
+                          ₹{Number(effectiveSipAmount(sip, due.year, due.month)).toLocaleString('en-IN')}/month
+                          {sip.stepUpPercent && (
+                            <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-emerald-600 bg-emerald-50 rounded-full px-1.5 py-0.5">
+                              <ArrowUp size={9} />{sip.stepUpPercent}%/yr
+                            </span>
+                          )}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        <span className="text-[11px] font-bold text-gray-500 border border-gray-200 rounded-lg px-2 py-1">{formatDate(due)}</span>
+                        <button
+                          onClick={() => handleSkipSip(sip.id, due)}
+                          disabled={busyId === sip.id}
+                          aria-label="Skip this month"
+                          className="p-1.5 rounded-lg text-gray-300 hover:text-amber-500 hover:bg-amber-50 disabled:opacity-40"
+                        >
+                          {busyId === sip.id ? <Loader2 size={14} className="animate-spin" /> : <SkipForward size={14} />}
+                        </button>
+                        <button
+                          onClick={() => handleStopSip(sip.id)}
+                          disabled={busyId === sip.id}
+                          aria-label="Stop SIP"
+                          className="p-1.5 rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50 disabled:opacity-40"
+                        >
+                          {busyId === sip.id ? <Loader2 size={14} className="animate-spin" /> : <StopCircle size={14} />}
+                        </button>
+                      </div>
+                    </div>
+                    {sip.skips?.length > 0 && (
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {sip.skips.map(sk => (
+                          <span key={`${sk.year}-${sk.month}`} className="inline-flex items-center gap-1 text-[10px] font-medium bg-amber-50 border border-amber-200 rounded-full pl-2 pr-1 py-0.5 text-amber-600">
+                            Skipped {MONTH_SHORT[sk.month - 1]} {sk.year}
+                            <button
+                              onClick={() => handleUnskipSip(sip.id, sk)}
+                              aria-label="Undo skip"
+                              className="p-0.5 rounded-full hover:bg-amber-100 text-amber-400 hover:text-amber-600"
+                            >
+                              <X size={10} />
+                            </button>
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
           )}
-          <div className="flex gap-2">
-            <button
-              onClick={() => { setShowAddFund(false); setFundForm(emptyFundForm) }}
-              className="flex-1 px-4 py-3 rounded-xl border border-amber-200 text-amber-600 font-bold text-sm hover:bg-amber-100 transition-colors"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={handleAddFund} disabled={!fundForm.fundName.trim() || saving}
-              className="flex-1 px-4 py-3 bg-amber-500 text-white rounded-xl font-bold hover:bg-amber-600 disabled:opacity-40 transition-colors text-sm flex items-center justify-center gap-2"
-            >
-              {saving ? <Loader2 size={16} className="animate-spin" /> : null}
-              {saving ? 'Saving…' : 'Add Fund'}
-            </button>
-          </div>
         </div>
+      ) : (
+        <>
+          {/* Growth chart — net money invested (contributions minus withdrawals),
+              not live market value (no NAV feed in this phase) */}
+          {contributions.length > 0 && (
+            <div className="bg-white rounded-2xl border border-gray-100 p-4">
+              <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-3">Invested Over Time</p>
+              <InvestedChart series={series} />
+              <div className="grid grid-cols-5 gap-1.5 mt-3">
+                {CHART_RANGES.map(r => (
+                  <button
+                    key={r}
+                    onClick={() => setRange(r)}
+                    className={`py-1.5 rounded-lg border text-[11px] font-semibold transition-colors ${
+                      range === r ? 'border-amber-400 bg-amber-50 text-amber-600 ring-2 ring-amber-100' : 'border-gray-100 text-gray-400 hover:bg-gray-50'
+                    }`}
+                  >
+                    {r}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Fund list */}
+          {funds.length === 0 ? (
+            <div className="text-center py-10 text-gray-300">
+              <TrendingUp size={40} className="mx-auto mb-2 opacity-40" />
+              <p className="text-sm">No mutual funds added yet</p>
+            </div>
+          ) : activeFunds.length === 0 ? (
+            <p className="text-center text-sm text-gray-400 py-6">Every fund is fully withdrawn and closed — see below, or add a new one.</p>
+          ) : (
+            <div className="space-y-3">{activeFunds.map(renderFund)}</div>
+          )}
+
+          {/* Closed funds — fully redeemed with nothing left to feed them.
+              Collapsed by default so a "done" fund doesn't clutter the active
+              list, but its history stays one tap away rather than disappearing. */}
+          {closedFunds.length > 0 && (
+            <div className="space-y-3">
+              <button
+                onClick={() => setShowClosed(v => !v)}
+                className="w-full flex items-center justify-between px-4 py-2.5 rounded-xl bg-gray-50 border border-gray-100 text-xs font-bold text-gray-400 hover:bg-gray-100"
+              >
+                <span>Closed Funds ({closedFunds.length})</span>
+                {showClosed ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+              </button>
+              {showClosed && closedFunds.map(renderFund)}
+            </div>
+          )}
+
+          {/* Add fund */}
+          {!showAddFund ? (
+            <button
+              onClick={() => setShowAddFund(true)}
+              className="w-full flex items-center justify-center gap-2 bg-amber-50 border border-amber-100 text-amber-600 font-bold text-sm rounded-2xl py-3 hover:bg-amber-100 transition-colors"
+            >
+              <Plus size={16} /> Add Mutual Fund
+            </button>
+          ) : (
+            <div className="bg-amber-50 rounded-2xl p-4 space-y-3 border border-amber-100">
+              <div className="flex items-center gap-2 text-amber-600 font-bold text-sm">
+                <div className="w-6 h-6 rounded-full bg-amber-200 flex items-center justify-center"><Plus size={14} /></div>
+                Add Mutual Fund
+              </div>
+              <input
+                type="text" value={fundForm.fundName} onChange={e => setFundForm(f => ({ ...f, fundName: e.target.value }))}
+                placeholder="e.g. Motilal Oswal Midcap Fund Direct Growth"
+                className="w-full px-4 py-3 rounded-xl border border-amber-200 focus:border-amber-400 outline-none text-gray-800 bg-white text-sm"
+              />
+              <select
+                value={fundForm.fundCategory} onChange={e => setFundForm(f => ({ ...f, fundCategory: e.target.value }))}
+                className="w-full px-3 py-3 rounded-xl border border-amber-200 focus:border-amber-400 outline-none text-gray-800 bg-white text-sm"
+              >
+                <option value="">Category (optional)…</option>
+                {MF_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                <option value={OTHER_CATEGORY}>Other (type manually)</option>
+              </select>
+              {fundForm.fundCategory === OTHER_CATEGORY && (
+                <input
+                  type="text" value={fundForm.customCategory} onChange={e => setFundForm(f => ({ ...f, customCategory: e.target.value }))}
+                  placeholder="Category name"
+                  className="w-full px-4 py-3 rounded-xl border border-amber-200 focus:border-amber-400 outline-none text-gray-800 bg-white text-sm"
+                />
+              )}
+              <div className="flex gap-2">
+                <button
+                  onClick={() => { setShowAddFund(false); setFundForm(emptyFundForm) }}
+                  className="flex-1 px-4 py-3 rounded-xl border border-amber-200 text-amber-600 font-bold text-sm hover:bg-amber-100 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleAddFund} disabled={!fundForm.fundName.trim() || saving}
+                  className="flex-1 px-4 py-3 bg-amber-500 text-white rounded-xl font-bold hover:bg-amber-600 disabled:opacity-40 transition-colors text-sm flex items-center justify-center gap-2"
+                >
+                  {saving ? <Loader2 size={16} className="animate-spin" /> : null}
+                  {saving ? 'Saving…' : 'Add Fund'}
+                </button>
+              </div>
+            </div>
+          )}
+        </>
       )}
     </div>
   )

@@ -1,15 +1,14 @@
 import { useState } from 'react'
-import { Plus, Trash2, Trophy, TrendingUp, PiggyBank, Loader2 } from 'lucide-react'
-import MutualFundTab from './MutualFundTab'
+import { Plus, Trash2, Trophy, TrendingUp, PiggyBank, LineChart, ChevronRight, Loader2 } from 'lucide-react'
 
 const MONTH_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
 
-// Mutual Fund is its own full subsystem (fund + SIP + lumpsum, see
-// MutualFundTab.jsx) — everything else here is still the flat date+amount+
-// note ledger this tab always was, just bucketed by `type` instead of lumped
-// into one list.
+// Mutual Fund is its own full subsystem (fund + SIP + lumpsum + withdraw,
+// see MutualFundTab.jsx) and now lives as its own top-level tab, same as
+// Credit Cards / EMI — this tab only shows its running total as a
+// jump-off card (see mfSummaryCard below). Everything else here is still
+// the flat date+amount+note ledger this tab always was.
 const SEGMENTS = [
-  { id: 'mutual_fund',       label: 'Mutual Fund' },
   { id: 'fixed_deposit',     label: 'Fixed Deposit' },
   { id: 'recurring_deposit', label: 'Recurring Deposit' },
   { id: 'gold',              label: 'Gold' },
@@ -25,24 +24,15 @@ const formatDate = (dateStr) => {
 
 export default function AchievementTab({
   achievements, onAddAchievement, onDeleteAchievement,
-  mutualFunds, onAddFund, onAddSip, onStopSip, onAddLumpsum, onWithdrawFund, onDeleteFund,
+  mutualFundsTotal, mutualFundsCount, onOpenMutualFund,
 }) {
-  const [segment, setSegment] = useState('mutual_fund')
+  const [segment, setSegment] = useState('fixed_deposit')
 
-  const mfTotal = mutualFunds.reduce((s, f) => s + Number(f.totalInvested || 0), 0)
   const flatEntries = (type) => achievements.filter(a => a.type === type)
   const flatTotal = (type) => flatEntries(type).reduce((s, a) => s + Number(a.amount || 0), 0)
 
-  // One hero banner that reflects whichever segment is open, instead of a
-  // separate all-types grand total sitting above a second, segment-specific
-  // total — showing two big numbers back to back read as contradictory
-  // rather than complementary.
-  const hero = segment === 'mutual_fund'
-    ? { label: 'Total Invested', amount: mfTotal, sub: `${mutualFunds.length} ${mutualFunds.length === 1 ? 'fund' : 'funds'}` }
-    : (() => {
-        const entries = flatEntries(segment)
-        return { label: `Total ${SEGMENTS.find(s => s.id === segment).label}`, amount: flatTotal(segment), sub: `${entries.length} ${entries.length === 1 ? 'entry' : 'entries'}` }
-      })()
+  const entries = flatEntries(segment)
+  const hero = { label: `Total ${SEGMENTS.find(s => s.id === segment).label}`, amount: flatTotal(segment), sub: `${entries.length} ${entries.length === 1 ? 'entry' : 'entries'}` }
 
   return (
     <div className="space-y-4">
@@ -54,6 +44,28 @@ export default function AchievementTab({
         <p className="text-4xl font-black tracking-tight">₹{hero.amount.toLocaleString('en-IN')}</p>
         <p className="text-xs opacity-70 mt-1">{hero.sub}</p>
       </div>
+
+      {/* Mutual Fund now lives in its own top-level tab (SIP/lumpsum/withdraw
+          are a full subsystem, same as Credit Cards/EMI) — this is just a
+          running-total jump-off card, not the feature itself. */}
+      <button
+        onClick={onOpenMutualFund}
+        className="w-full flex items-center justify-between gap-3 bg-white rounded-2xl border border-yellow-200 px-4 py-3.5 hover:bg-yellow-50 transition-colors"
+      >
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-xl bg-yellow-100 flex items-center justify-center flex-shrink-0">
+            <LineChart size={18} className="text-yellow-600" />
+          </div>
+          <div className="text-left">
+            <p className="text-xs text-gray-400 font-semibold uppercase tracking-wide">Mutual Fund</p>
+            <p className="text-lg font-black text-yellow-600">₹{mutualFundsTotal.toLocaleString('en-IN')}</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-1 text-gray-400 flex-shrink-0">
+          <span className="text-xs font-medium">{mutualFundsCount} {mutualFundsCount === 1 ? 'fund' : 'funds'}</span>
+          <ChevronRight size={16} />
+        </div>
+      </button>
 
       {/* Segmented control — one scrollable row of pills, no wrapping */}
       <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-4 px-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
@@ -70,24 +82,12 @@ export default function AchievementTab({
         ))}
       </div>
 
-      {segment === 'mutual_fund' ? (
-        <MutualFundTab
-          funds={mutualFunds}
-          onAddFund={onAddFund}
-          onAddSip={onAddSip}
-          onStopSip={onStopSip}
-          onAddLumpsum={onAddLumpsum}
-          onWithdrawFund={onWithdrawFund}
-          onDeleteFund={onDeleteFund}
-        />
-      ) : (
-        <FlatSavingsSegment
-          label={SEGMENTS.find(s => s.id === segment).label}
-          entries={flatEntries(segment)}
-          onAdd={(date, amount, remark) => onAddAchievement(date, amount, remark, segment)}
-          onDelete={onDeleteAchievement}
-        />
-      )}
+      <FlatSavingsSegment
+        label={SEGMENTS.find(s => s.id === segment).label}
+        entries={entries}
+        onAdd={(date, amount, remark) => onAddAchievement(date, amount, remark, segment)}
+        onDelete={onDeleteAchievement}
+      />
     </div>
   )
 }

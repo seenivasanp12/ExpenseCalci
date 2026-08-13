@@ -108,6 +108,10 @@ export const addSip = (fundId, sip) => authReq('POST', `/api/mf/funds/${fundId}/
 
 export const stopSip = (id) => authReq('PATCH', `/api/mf/sips/${id}/stop`)
 
+export const skipSip = (id, { year, month }) => authReq('POST', `/api/mf/sips/${id}/skip`, { year, month })
+
+export const unskipSip = (id, { year, month }) => authReq('DELETE', `/api/mf/sips/${id}/skip`, { year, month })
+
 export const deleteSip = (id) => authReq('DELETE', `/api/mf/sips/${id}`)
 
 export const addLumpsum = (fundId, contribution) => authReq('POST', `/api/mf/funds/${fundId}/lumpsum`, contribution)

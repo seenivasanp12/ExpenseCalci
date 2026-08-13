@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
   ChevronLeft, ChevronRight, LogOut, Loader2, Eye, EyeOff, Menu,
-  TrendingUp, ShoppingCart, PiggyBank, LayoutGrid, Calculator, CreditCard, Repeat,
+  TrendingUp, ShoppingCart, PiggyBank, LayoutGrid, Calculator, CreditCard, Repeat, LineChart,
 } from 'lucide-react'
 import EarnTab        from './tabs/EarnTab'
 import ExpensesTab    from './tabs/ExpensesTab'
@@ -10,12 +10,13 @@ import CategoriesTab  from './tabs/CategoriesTab'
 import CalculateTab   from './tabs/CalculateTab'
 import CreditCardTab  from './tabs/CreditCardTab'
 import EmiTab         from './tabs/EmiTab'
+import MutualFundTab  from './tabs/MutualFundTab'
 import {
   getData, addEarning, deleteEarning,
   addExpense, deleteExpense, addAchievement, deleteAchievement,
   getCards, addCard, updateCard, deleteCard, markCardPaid,
   getEmis, addEmi, deleteEmi, confirmEmiDiscount,
-  getMutualFunds, addMutualFund, deleteMutualFund, addSip, stopSip, addLumpsum, withdrawFund,
+  getMutualFunds, addMutualFund, deleteMutualFund, addSip, stopSip, skipSip, unskipSip, addLumpsum, withdrawFund,
 } from '../utils/api'
 import { cashBasisTotal } from '../utils/expenseTotals'
 import MaskedAmount from './MaskedAmount'
@@ -29,6 +30,7 @@ const TABS = [
   { id: 'Expenses',    icon: ShoppingCart, color: 'text-red-600 border-red-500 bg-red-50'         },
   { id: 'CreditCard',  icon: CreditCard,   color: 'text-sky-600 border-sky-500 bg-sky-50', label: 'Credit Cards', monthScoped: false },
   { id: 'Emi',         icon: Repeat,       color: 'text-cyan-600 border-cyan-500 bg-cyan-50', label: 'EMI', monthScoped: false },
+  { id: 'MutualFund',  icon: LineChart,    color: 'text-yellow-600 border-yellow-500 bg-yellow-50', label: 'Mutual Fund', monthScoped: false },
   { id: 'Achievement', icon: PiggyBank,    color: 'text-amber-600 border-amber-500 bg-amber-50'   },
   { id: 'Categories',  icon: LayoutGrid,   color: 'text-purple-600 border-purple-500 bg-purple-50'},
   { id: 'Calculate',   icon: Calculator,   color: 'text-indigo-600 border-indigo-500 bg-indigo-50'},
@@ -185,6 +187,19 @@ export default function Dashboard({ user, onLogout }) {
     await stopSip(id)
     setMutualFunds(await getMutualFunds())
   }
+  // Skipping a month may delete an already-posted expense (if the installment
+  // had auto-posted before the user skipped it), and unskipping may
+  // immediately post one back — same refetch-both pattern as SIP/lumpsum.
+  const handleSkipSip = async (id, month) => {
+    await skipSip(id, month)
+    const [freshFunds] = await Promise.all([getMutualFunds(), loadData()])
+    setMutualFunds(freshFunds)
+  }
+  const handleUnskipSip = async (id, month) => {
+    await unskipSip(id, month)
+    const [freshFunds] = await Promise.all([getMutualFunds(), loadData()])
+    setMutualFunds(freshFunds)
+  }
   const handleAddLumpsum = async (fundId, contribution) => {
     await addLumpsum(fundId, contribution)
     const [freshFunds] = await Promise.all([getMutualFunds(), loadData()])
@@ -204,6 +219,7 @@ export default function Dashboard({ user, onLogout }) {
   const totalEarn         = data.earn.reduce((s, e) => s + Number(e.amount || 0), 0)
   const totalExpenses     = cashBasisTotal(data.expenses)
   const totalAchievement  = data.achievements.reduce((s, a) => s + Number(a.amount || 0), 0)
+  const mutualFundsTotal  = mutualFunds.reduce((s, f) => s + Number(f.totalInvested || 0), 0)
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-purple-50 to-pink-50 pb-8">
@@ -305,10 +321,15 @@ export default function Dashboard({ user, onLogout }) {
                 {activeTab === 'Expenses'    && <ExpensesTab    expenses={data.expenses} onAdd={handleAddExpense}        onDelete={handleDeleteExpense} year={year} month={month} cards={cards} />}
                 {activeTab === 'CreditCard'  && <CreditCardTab  cards={cards} onAdd={handleAddCard} onUpdate={handleUpdateCard} onDelete={handleDeleteCard} onConfirmPayment={handleConfirmCardPayment} />}
                 {activeTab === 'Emi'         && <EmiTab         emis={emis} cards={cards} onAdd={handleAddEmi} onDelete={handleDeleteEmi} onConfirmDiscount={handleConfirmEmiDiscount} />}
+                {activeTab === 'MutualFund'  && <MutualFundTab
+                  funds={mutualFunds} onAddFund={handleAddMutualFund} onAddSip={handleAddSip} onStopSip={handleStopSip}
+                  onSkipSip={handleSkipSip} onUnskipSip={handleUnskipSip}
+                  onAddLumpsum={handleAddLumpsum} onWithdrawFund={handleWithdrawFund} onDeleteFund={handleDeleteMutualFund}
+                />}
                 {activeTab === 'Achievement' && <AchievementTab
                   achievements={data.achievements} onAddAchievement={handleAddAchievement} onDeleteAchievement={handleDeleteAchievement}
-                  mutualFunds={mutualFunds} onAddFund={handleAddMutualFund} onAddSip={handleAddSip} onStopSip={handleStopSip}
-                  onAddLumpsum={handleAddLumpsum} onWithdrawFund={handleWithdrawFund} onDeleteFund={handleDeleteMutualFund}
+                  mutualFundsTotal={mutualFundsTotal} mutualFundsCount={mutualFunds.length}
+                  onOpenMutualFund={() => setActiveTab('MutualFund')}
                 />}
                 {activeTab === 'Categories'  && <CategoriesTab  expenses={data.expenses} />}
                 {activeTab === 'Calculate'   && <CalculateTab   data={data} year={year} month={month} />}
